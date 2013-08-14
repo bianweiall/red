@@ -26,7 +26,7 @@ type Orm struct {
 	//解析struct为一个map，去除了包含"pk"或者是"pk:auto"或者是"dt"的字段和值
 	StructMap map[string]interface{}
 	//过滤字符串
-	FilterMap []string
+	FilterStrs []string
 
 	WhereMap map[string]interface{}
 }
@@ -39,7 +39,7 @@ func (orm *Orm) SetTableName(tabeName string) *Orm {
 
 //设置过滤条件
 func (orm *Orm) Filter(args ...string) *Orm {
-	orm.FilterMap = args
+	orm.FilterStrs = args
 	return orm
 }
 
@@ -292,6 +292,69 @@ func (orm *Orm) Delete(o interface{}) error {
 	_, err = orm.Exec()
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+//取得一条记录
+func (orm *Orm) FindOne(o interface{}) error {
+	err := orm.getStructMap(o)
+	if err != nil {
+		return err
+	}
+
+	args := orm.StructMap
+	fs := orm.FilterStrs
+
+	for i := 0; i < len(fs); i++ {
+		delete(args, fs[i])
+	}
+
+	var selectStrs []string
+	for k, _ := range args {
+		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
+	}
+
+	selectStr := strings.Join(selectStrs, ",")
+
+	whereMap := orm.WhereMap
+
+	if len(whereMap) != 1 {
+		return errors.New("WHERE条件参数只能为一个")
+	}
+	var values []interface{}
+	var whereStrName string
+	var whereValue interface{}
+	for k, v := range whereMap {
+		whereStrName = k
+		whereValue = v
+	}
+	values = append(values, whereValue)
+	orm.ParamValue = values
+	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v=$1", selectStr, orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
+
+	rows, err := orm.Db.Query(orm.SqlStr)
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		result := make(map[string][]byte)
+		//var c Category
+		err = rows.Scan(&id, &title, &author, &content, &createdtime, &cid)
+
+		if err != nil {
+			return err
+		}
+		//fmt.Printf("cid:%v\n", cid)
+		b.Id = id
+		b.Title = title
+		b.Author = author
+		b.Content = content
+		b.CreatedTime = createdtime
+		b.CreatedTime = formatTime(b.CreatedTime)
+		b.Category.Id = cid
+
 	}
 	return nil
 }
