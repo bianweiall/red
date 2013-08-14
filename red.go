@@ -15,22 +15,20 @@ type Orm struct {
 	SqlStr string
 	//数据库表名
 	TableName string
-	//SqlStr中表字段名，例如："_name,_age,_time"
-	TableItemStr string
-	//SqlStr中表字段名的占位符，例如："$1,$2,current_timestamp"
-	ValueItemStr string
 	//需要提交到数据库字段的值
 	ParamValue []interface{}
 	//数据库主键，`pk:auto`为自动递增主键，`pk`为不能自动递增主键
 	PKName string
+	//自动主键
+	AutoPKName string
 	//tag为`dt`的字段名
 	DateTimeKey []string
-	//解析struct为一个map
+	//解析struct为一个map，去除了包含"pk"或者是"pk:auto"或者是"dt"的字段和值
 	StructMap map[string]interface{}
 	//过滤字符串
-	FilterStr []string
+	FilterMap []string
 
-	WhereStr map[string]interface{}
+	WhereMap map[string]interface{}
 }
 
 //设置数据库表名
@@ -41,16 +39,18 @@ func (orm *Orm) SetTableName(tabeName string) *Orm {
 
 //设置过滤条件
 func (orm *Orm) Filter(args ...string) *Orm {
-	orm.FilterStr = args
+	orm.FilterMap = args
 	return orm
 }
 
-//设置Where条件，例如：Where("Id=$1,Name=$2",1,"学友")
-func (orm *Orm) Where(strs ...string, args ...interface{}) *Orm {
-	var myWhere = make(map[string][]interface{})
-	myWhere["whereKey"] = strs
-	myWhere["whereValue"] = args
-	orm.WhereStr = myWhere
+//设置Where条件，例如：Where("Id,name",1,"学友")
+func (orm *Orm) Where(str string, args ...interface{}) *Orm {
+	strs := strings.Split(str, ",")
+	var myWhere = make(map[string]interface{})
+	for i := 0; i < len(strs); i++ {
+		myWhere[strings.TrimSpace(strs[i])] = args[i]
+	}
+	orm.WhereMap = myWhere
 	return orm
 }
 
@@ -71,18 +71,18 @@ func (orm *Orm) getStructMap(o interface{}) error {
 	var j = 0
 
 	for i := 0; i < t.NumField(); i++ {
+		args[t.Field(i).Name] = v.Field(i).Interface()
+
 		if t.Field(i).Tag == "pk:auto" {
 			pkName = t.Field(i).Name
+			orm.AutoPKName = pkName
 			j++
 
 		} else if t.Field(i).Tag == "pk" {
 			pkName = t.Field(i).Name
-			args[t.Field(i).Name] = v.Field(i).Interface()
 			j++
 		} else if t.Field(i).Tag == "dt" {
 			dateTimes = append(dateTimes, t.Field(i).Name)
-		} else {
-			args[t.Field(i).Name] = v.Field(i).Interface()
 		}
 
 		if j > 1 {
@@ -141,6 +141,17 @@ func (orm *Orm) Create(o interface{}) error {
 	}
 	args := orm.StructMap
 	dt := orm.DateTimeKey
+	pk := orm.PKName
+
+	delete(args, orm.PKName)
+
+	for j := 0; j < len(dt); j++ {
+		delete(args, dt[j])
+	}
+
+	fmt.Printf("args:%v\n", args)
+	fmt.Printf("dt:%v\n", dt)
+	fmt.Printf("pk:%v\n", pk)
 
 	/*
 			bok := isInMap(args, orm.FilterStr)
@@ -174,12 +185,13 @@ func (orm *Orm) Create(o interface{}) error {
 		names = append(names, dt[j])
 		namevlues = append(namevlues, "current_timestamp")
 	}
+	tableItemStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
+	valueItemStr := strings.Join(namevlues, ",")
 
-	orm.TableItemStr = fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
-	orm.ValueItemStr = strings.Join(namevlues, ",")
 	orm.ParamValue = values
-
-	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, orm.TableItemStr, orm.ValueItemStr)
+	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
+	fmt.Printf("values:%v\n", values)
+	fmt.Printf("orm.SqlStr:%v\n", orm.SqlStr)
 
 	_, err = orm.Exec()
 	if err != nil {
@@ -197,61 +209,89 @@ func (orm *Orm) Update(o interface{}) error {
 	args := orm.StructMap
 	dt := orm.DateTimeKey
 
+	delete(args, orm.AutoPKName)
+
+	for j := 0; j < len(dt); j++ {
+		delete(args, dt[j])
+	}
+
 	var names []string
 	var namevlues []string
 	var values []interface{}
 
-	var i = 1
+	var snum = 1
 	for k, v := range args {
 		names = append(names, k)
-		namevlues = append(namevlues, fmt.Sprintf("$%v", i))
+		namevlues = append(namevlues, fmt.Sprintf("$%v", snum))
 		values = append(values, v)
-		i++
+		snum++
 	}
+
+	whereMap := orm.WhereMap
+
+	if len(whereMap) != 1 {
+		return errors.New("WHERE条件参数只能为一个")
+	}
+
+	var whereStrName string
+	var whereValue interface{}
+	for k, v := range whereMap {
+		whereStrName = k
+		whereValue = v
+	}
+	values = append(values, whereValue)
 
 	for j := 0; j < len(dt); j++ {
-		names = append(names, dt[j])
-		namevlues = append(namevlues, "current_timestamp")
-	}
-	//var setStrNames []string
-	//var setStrNameValues []string
-	for j := 0; j < len(names); j++ {
-		names[j] = fmt.Sprintf("_%v", strings.ToLower(names[j]))
-		//setStrNames = append(setStrNames, fmt.Sprintf("_%v", strings.ToLower(names[j])))
-		//setStrNameValues = append(setStrNameValues, fmt.Sprintf("_%v", strings.ToLower(namevlues[j])))
-	}
-
-	strs := orm.WhereStr["whereKey"]
-	var whereStrs []string
-	var whereValueStrs []string
-	for j := 0; j < len(strs); j++ {
-		//whereStrs = append(whereStrs, strs[j])
-
-		//whereValueStrs = append(whereValueStrs, fmt.Sprintf("$%v", i+1))
-	}
-
-	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v WHERE %v", orm.TableName, setStr)
-
-	/*
-		if strings.Contains(fmt.Sprintf("%v", dt), k) == true {
+		if strings.ToLower(dt[j]) != strings.ToLower(whereStrName) {
+			names = append(names, dt[j])
 			namevlues = append(namevlues, "current_timestamp")
-		} else {
-			namevlues = append(namevlues, fmt.Sprintf("$%v", i))
-			i++
-		}*/
-	fmt.Printf("names:%v\n", names)
-	fmt.Printf("namevlues:%v\n", namevlues)
-	fmt.Printf("values:%v\n", values)
+		}
+	}
 
-	//orm.TableItemStr = fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
-	//orm.ValueItemStr = strings.Join(namevlues, ",")
-	//orm.ParamValue = values
+	var setStrs []string
+	for i := 0; i < len(names); i++ {
+		setStrs = append(setStrs, fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(names[i])), namevlues[i]))
+	}
 
-	//orm.SqlStr = fmt.Sprintf("UPDATE %v SET title=$1,author=$2,content=$3,cid=$4,createdtime=current_timestamp WHERE id=$5", orm.TableName, orm.TableItemStr, orm.ValueItemStr)
+	setStr := strings.Join(setStrs, ",")
+	whereStr := fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(whereStrName)), fmt.Sprintf("$%v", snum))
 
-	//_, err = orm.Exec()
-	//if err != nil {
-	//	return err
-	//}
+	orm.ParamValue = values
+	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v WHERE %v", orm.TableName, setStr, whereStr)
+
+	_, err = orm.Exec()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+//删除数据
+func (orm *Orm) Delete(o interface{}) error {
+	err := orm.getStructMap(o)
+	if err != nil {
+		return err
+	}
+
+	whereMap := orm.WhereMap
+
+	if len(whereMap) != 1 {
+		return errors.New("WHERE条件参数只能为一个")
+	}
+	var values []interface{}
+	var whereStrName string
+	var whereValue interface{}
+	for k, v := range whereMap {
+		whereStrName = k
+		whereValue = v
+	}
+	values = append(values, whereValue)
+	orm.ParamValue = values
+	orm.SqlStr = fmt.Sprintf("DELETE FROM %v WHERE %v=$1", orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
+
+	_, err = orm.Exec()
+	if err != nil {
+		return err
+	}
 	return nil
 }
