@@ -31,6 +31,12 @@ type Orm struct {
 	FilterStrs []string
 
 	WhereMap map[string]interface{}
+
+	OrderByStrs []string
+
+	LimitStr int
+
+	OffsetStr int
 }
 
 //设置数据库表名
@@ -53,6 +59,24 @@ func (orm *Orm) Where(str string, args ...interface{}) *Orm {
 		myWhere[strings.TrimSpace(strs[i])] = args[i]
 	}
 	orm.WhereMap = myWhere
+	return orm
+}
+
+//设置ORDER BY 语句
+func (orm *Orm) OrderBy(args ...string) *Orm {
+	orm.OrderByStrs = args
+	return orm
+}
+
+//Limit
+func (orm *Orm) Limit(l int) *Orm {
+	orm.LimitStr = l
+	return orm
+}
+
+//Offset
+func (orm *Orm) Offset(o int) *Orm {
+	orm.OffsetStr = o
 	return orm
 }
 
@@ -437,12 +461,14 @@ func (orm *Orm) FindList(o interface{}) error {
 	}
 
 	args := orm.StructMap
-	fs := orm.FilterStrs
 
+	//FILTER
+	fs := orm.FilterStrs
 	for i := 0; i < len(fs); i++ {
 		delete(args, fs[i])
 	}
 
+	//SELECT
 	var selectStrs []string
 	for k, _ := range args {
 		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
@@ -450,26 +476,25 @@ func (orm *Orm) FindList(o interface{}) error {
 
 	selectStr := strings.Join(selectStrs, ",")
 
-	whereMap := orm.WhereMap
+	//ORDER BY
+	orderByStrs := orm.OrderByStrs
+	var orderByStr string
+	if len(orderByStrs) < 1 {
+		orderByStr = ""
+	} else if len(orderByStrs) == 1 {
+		orderByStr = orderByStrs[0]
+	} else {
+		for i := 0; i < len(orderByStrs); i++ {
+			orderByStr = strings.Join(orderByStrs, ", ")
+		}
+	}
+
+	//LIMIT OFFSET
 
 	var str string
 
-	if len(whereMap) > 0 {
-		var whereNames []string
-		var whereValues []interface{}
-		for k, v := range whereMap {
-			whereNames = append(whereNames, k)
-			whereValues = append(whereValues, v)
-		}
-		var whereStrs []string
-		for i := 0; i < len(whereNames); i++ {
-			whereStrs = append(whereStrs, fmt.Sprintf("%v=$%v", fmt.Sprintf("_%v", strings.ToLower(whereNames[i])), i+1))
-		}
-		whereStr := strings.Join(whereStrs, " AND ")
-		str = fmt.Sprintf("SELECT %v FROM %v WHERE %v", selectStr, orm.TableName, whereStr)
-	} else {
-		str = fmt.Sprintf("SELECT %v FROM %v", selectStr, orm.TableName)
-	}
+	str = fmt.Sprintf("SELECT %v FROM %v %v", selectStr, orm.TableName, orderByStr)
+
 	fmt.Printf("str:%v\n", str)
 
 	//orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v=$1", selectStr, orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
