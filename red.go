@@ -37,6 +37,8 @@ type Orm struct {
 	LimitStr int
 
 	OffsetStr int
+
+	Err error
 }
 
 //设置数据库表名
@@ -46,51 +48,87 @@ func (orm *Orm) SetTableName(tabeName string) *Orm {
 }
 
 //设置过滤条件
-func (orm *Orm) Filter(args ...string) *Orm {
-	orm.FilterStrs = args
+func (orm *Orm) Filter(filter ...string) *Orm {
+	orm.FilterStrs = filter
 	return orm
 }
 
-//设置Where条件，例如：Where("Id,name",1,"学友")
-func (orm *Orm) Where(str string, args ...interface{}) *Orm {
-	strs := strings.Split(str, ",")
-	var myWhere = make(map[string]interface{})
-	for i := 0; i < len(strs); i++ {
-		myWhere[strings.TrimSpace(strs[i])] = args[i]
+//设置Where条件
+func (orm *Orm) Where(str string, strValue interface{}) *Orm {
+	orm.WhereMap[str] = strValue
+	return orm
+}
+
+//设置WhereOr条件
+func (orm *Orm) WhereOr(str string, strValues ...interface{}) *Orm {
+	if strings.Contains(str, ",") == true {
+		strs := strings.Split(str, ",")
+		if len(strs) == len(strValues) {
+			for i := 0; i < len(strs); i++ {
+				orm.WhereMap[fmt.Sprintf("||%v", strings.TrimSpace(strs[i]))] = strValues[i]
+			}
+		}
+	} else {
+		if len(strValues) == 1 {
+			orm.WhereMap[fmt.Sprintf("||%v", str)] = strValues
+		}
 	}
-	orm.WhereMap = myWhere
 	return orm
 }
 
-//设置ORDER BY 语句
+//设置WhereAnd条件
+func (orm *Orm) WhereAnd(str string, strValues ...interface{}) *Orm {
+	if strings.Contains(str, ",") == true {
+		strs := strings.Split(str, ",")
+		if len(strs) == len(strValues) {
+			for i := 0; i < len(strs); i++ {
+				orm.WhereMap[fmt.Sprintf("&%v", strings.TrimSpace(strs[i]))] = strValues[i]
+			}
+		}
+	} else {
+		if len(strValues) == 1 {
+			orm.WhereMap[fmt.Sprintf("&%v", str)] = strValues
+		}
+	}
+	return orm
+}
+
+//设置ORDER BY
 func (orm *Orm) OrderBy(args ...string) *Orm {
 	orm.OrderByStrs = args
 	return orm
 }
 
-//Limit
-func (orm *Orm) Limit(l int) *Orm {
-	orm.LimitStr = l
+//设置Limit
+func (orm *Orm) Limit(limit int) *Orm {
+	orm.LimitStr = limit
 	return orm
 }
 
-//Offset
-func (orm *Orm) Offset(o int) *Orm {
-	orm.OffsetStr = o
+//设置Offset
+func (orm *Orm) Offset(offset int) *Orm {
+	orm.OffsetStr = offset
 	return orm
 }
 
 //解析STRUCT字段和值到一个MAP中
 func (orm *Orm) scanStructIntoMap(o interface{}) error {
-	if reflect.TypeOf(o).Kind() != reflect.Ptr {
-		return errors.New("只接受指针类型")
+	structValue := reflect.Indirect(reflect.ValueOf(o))
+	if structValue.Kind() != reflect.Struct {
+		errors.New("要求传入一个struct类型的指针")
 	}
+	/*
+			if reflect.TypeOf(o).Kind() != reflect.Ptr {
+				return errors.New("只接受指针类型")
+			}
+			if t.Kind() != reflect.Struct {
+				return errors.New("只接受struct类型的指针")
+			}
+		t := reflect.TypeOf(o).Elem()
+		v := reflect.ValueOf(o).Elem()
+	*/
 	t := reflect.TypeOf(o).Elem()
-	if t.Kind() != reflect.Struct {
-		return errors.New("只接受struct类型的指针")
-	}
 	v := reflect.ValueOf(o).Elem()
-
 	var args = make(map[string]interface{})
 	var dateTimes []string
 	var pkName string
@@ -112,7 +150,7 @@ func (orm *Orm) scanStructIntoMap(o interface{}) error {
 		}
 
 		if j > 1 {
-			return errors.New("struct字段只能设置一个主键")
+			return errors.New("要求struct字段只能设置一个主键")
 		}
 	}
 
@@ -194,13 +232,13 @@ func (orm *Orm) Exec() (sql.Result, error) {
 	fmt.Printf("orm.SqlStr:%v\n", orm.SqlStr)
 	stmt, err := orm.Db.Prepare(orm.SqlStr)
 	if err != nil {
-		return nil, errors.New("Prepare错误")
+		return nil, err
 	}
 	defer stmt.Close()
 	fmt.Printf("orm.ParamValue:%v\n", orm.ParamValue)
 	res, err := stmt.Exec(orm.ParamValue...)
 	if err != nil {
-		return nil, errors.New("Exec错误")
+		return nil, err
 	}
 	return res, nil
 }
@@ -276,18 +314,12 @@ func (orm *Orm) Update(o interface{}) error {
 		values = append(values, v)
 		snum++
 	}
-
-	whereMap := orm.WhereMap
-
-	if len(whereMap) != 1 {
-		return errors.New("WHERE条件参数只能为一个")
+	if orm.Err != nil {
+		return orm.Err
 	}
-
-	var whereStrName string
-	var whereValue interface{}
-	for k, v := range whereMap {
-		whereStrName = k
-		whereValue = v
+	whereStrName, whereValue, err := getOneInMap(orm.WhereMap)
+	if err != nil {
+		return err
 	}
 	values = append(values, whereValue)
 
@@ -322,19 +354,14 @@ func (orm *Orm) Delete(o interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	whereMap := orm.WhereMap
-
-	if len(whereMap) != 1 {
-		return errors.New("WHERE条件参数只能为一个")
+	if orm.Err != nil {
+		return orm.Err
+	}
+	whereStrName, whereValue, err := getOneInMap(orm.WhereMap)
+	if err != nil {
+		return err
 	}
 	var values []interface{}
-	var whereStrName string
-	var whereValue interface{}
-	for k, v := range whereMap {
-		whereStrName = k
-		whereValue = v
-	}
 	values = append(values, whereValue)
 	orm.ParamValue = values
 	orm.SqlStr = fmt.Sprintf("DELETE FROM %v WHERE %v=$1", orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
@@ -367,17 +394,9 @@ func (orm *Orm) FindOne(o interface{}) error {
 
 	selectStr := strings.Join(selectStrs, ",")
 
-	whereMap := orm.WhereMap
-
-	if len(whereMap) != 1 {
-		return errors.New("WHERE条件参数只能为一个")
-	}
-
-	var whereStrName string
-	var whereValue interface{}
-	for k, v := range whereMap {
-		whereStrName = k
-		whereValue = v
+	whereStrName, _, err := getOneInMap(orm.WhereMap)
+	if err != nil {
+		return err
 	}
 
 	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v=$1", selectStr, orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
@@ -393,6 +412,20 @@ func (orm *Orm) FindOne(o interface{}) error {
 	}
 
 	return nil
+}
+
+//MAP中只有一个key,value时，获取key,value
+func getOneInMap(args map[string]interface{}) (string, interface{}, error) {
+	if len(args) != 1 {
+		return nil, nil, errors.New("MAP中只有一个key,value时有用")
+	}
+	var whereStrName string
+	var whereValue interface{}
+	for k, v := range args {
+		whereStrName = k
+		whereValue = v
+	}
+	return whereStrName, whereValue, nil
 }
 
 func (orm *Orm) query(str string, args ...interface{}) (resultsSlice []map[string][]byte, err error) {
@@ -462,34 +495,90 @@ func (orm *Orm) FindList(o interface{}) error {
 
 	args := orm.StructMap
 
-	//FILTER
+	//FILTER过滤不需要的字段
 	fs := orm.FilterStrs
-	for i := 0; i < len(fs); i++ {
-		delete(args, fs[i])
-	}
+	var selectStr string
+	if len(fs) < 1 {
+		selectStr = "*"
+	} else {
+		for i := 0; i < len(fs); i++ {
+			delete(args, fs[i])
+		}
 
-	//SELECT
-	var selectStrs []string
-	for k, _ := range args {
-		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
-	}
+		//SELECT拼接条件
+		var selectStrs []string
+		for k, _ := range args {
+			selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
+		}
 
-	selectStr := strings.Join(selectStrs, ",")
+		selectStr = strings.Join(selectStrs, ",")
+
+	}
 
 	//ORDER BY
 	orderByStrs := orm.OrderByStrs
+	var strs []string
 	var orderByStr string
+
 	if len(orderByStrs) < 1 {
 		orderByStr = ""
-	} else if len(orderByStrs) == 1 {
-		orderByStr = orderByStrs[0]
 	} else {
-		for i := 0; i < len(orderByStrs); i++ {
-			orderByStr = strings.Join(orderByStrs, ", ")
+		for _, v := range orderByStrs {
+			if strings.Contains(v, "-") == true {
+				strs = append(strs, fmt.Sprintf("%v DESC", fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(v, "-")))))
+			} else {
+				strs = append(strs, fmt.Sprintf("%v ASC", fmt.Sprintf("_%v", strings.ToLower(v))))
+			}
 		}
+		orderByStrs = strs
 	}
 
+	if len(orderByStrs) == 1 {
+		orderByStr = fmt.Sprintf("ORDER BY %v", orderByStrs[0])
+	} else {
+		orderByStr = fmt.Sprintf("ORDER BY %v", strings.Join(orderByStrs, ", "))
+	}
+
+	//WHERE
+	var whereStr, whereName string
+	var whereNameValue interface{}
+	var whereOrs, whereAnds []string
+	var whereOrValue, whereAndValue []interface{}
+	for k, v := range orm.WhereMap {
+		if strings.Contains(k, "||") == true {
+			whereOrs = append(whereOr, fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(k, "||"))))
+			whereOrValue = v
+		} else if strings.Contains(k, "&") == true {
+			whereAnds = append(whereAnd, fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(k, "&"))))
+			whereAndValue = v
+		} else {
+			whereName = fmt.Sprintf("_%v", strings.ToLower(k))
+			whereNameValue = v
+		}
+	}
+	var orStr, andStr string
+	if len(whereOrs) == 1 {
+		orStr = fmt.Sprintf("OR %v", whereOrs[0])
+		if len(whereAnds) == 1 {
+
+		}
+
+	} else if len(whereOrs) > 1 {
+		if len(whereAnds) == 1 {
+			orStr = 
+			
+		} else if len(whereAnds) > 1 {
+			orStr = fmt.Sprintf("OR %v", strings.Join(whereOrs, " OR "))
+			andStr = fmt.Sprintf("AND %v", strings.Join(whereAnds, " AND "))
+		} else {
+			orStr = ""
+			andStr = ""
+		}
+	}
+	//whereStr = fmt.Sprintf("WHERE (%v OR %v) AND %v", whereName, , )
+
 	//LIMIT OFFSET
+	limitAndOffsetStr := fmt.Sprintf("LIMIT $%v OFFSET $%v", 1+1, 1+2)
 
 	var str string
 
