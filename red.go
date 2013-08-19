@@ -46,8 +46,14 @@ func (orm *Orm) SetTableName(tabeName string) *Orm {
 }
 
 //设置过滤条件
-func (orm *Orm) Filter(filter ...string) *Orm {
-	orm.FilterStrs = filter
+func (orm *Orm) Filter(filter string) *Orm {
+	var strs []string
+	if strings.Contains(filter, ",") == true {
+		strs = strings.Split(filter, ",")
+		orm.FilterStrs = strs
+	} else {
+		orm.FilterStrs = append(strs, filter)
+	}
 	return orm
 }
 
@@ -498,61 +504,65 @@ func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, erro
 }
 
 func getWhereStr(args map[string]interface{}) (string, []interface{}) {
-	var whereName string
+	var whereStr, whereName string
 	var whereNameValue interface{}
 	var whereOrs, whereAnds []string
 	var whereOrValues, whereAndValues, allValues []interface{}
 	j := 2
-	for k, v := range args {
-		if strings.Contains(k, "||") == true {
-			whereOrs = append(whereOrs, fmt.Sprintf("_%v=$%v", strings.ToLower(strings.TrimLeft(k, "||")), j))
-			whereOrValues = append(whereOrValues, v)
+	if len(args) < 1 {
+		return "", make([]interface{}, 0)
+	} else {
+		for k, v := range args {
+			if strings.Contains(k, "||") == true {
+				whereOrs = append(whereOrs, fmt.Sprintf("_%v=$%v", strings.ToLower(strings.TrimLeft(k, "||")), j))
+				whereOrValues = append(whereOrValues, v)
+				j++
+			} else if strings.Contains(k, "&") == true {
+				whereAnds = append(whereAnds, fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(k, "&"))))
+				whereAndValues = append(whereAndValues, v)
+			} else {
+				whereName = fmt.Sprintf("_%v=$1", strings.ToLower(k))
+				whereNameValue = v
+			}
+		}
+
+		for i := 0; i < len(whereAnds); i++ {
+			whereAnds[i] = fmt.Sprintf("%v=$%v", whereAnds[i], j)
 			j++
-		} else if strings.Contains(k, "&") == true {
-			whereAnds = append(whereAnds, fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(k, "&"))))
-			whereAndValues = append(whereAndValues, v)
+		}
+
+		//拼接字符串/所有条件的值
+		var whereNameAndOrStr string
+		var whereAndStr string
+		allValues = append(allValues, whereNameValue)
+		if len(whereOrValues) == 1 {
+			whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, whereOrs[0])
+			allValues = append(allValues, whereOrValues[0])
+		} else if len(whereOrValues) > 1 {
+			whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, strings.Join(whereOrs, " OR "))
+			for _, v := range whereOrValues {
+				allValues = append(allValues, v)
+			}
 		} else {
-			whereName = fmt.Sprintf("_%v=$1", strings.ToLower(k))
-			whereNameValue = v
+			whereNameAndOrStr = fmt.Sprintf("WHERE %v", whereName)
 		}
-	}
 
-	for i := 0; i < len(whereAnds); i++ {
-		whereAnds[i] = fmt.Sprintf("%v=$%v", whereAnds[i], j)
-		j++
-	}
-
-	//拼接字符串/所有条件的值
-	var whereNameAndOrStr string
-	var whereAndStr string
-	allValues = append(allValues, whereNameValue)
-	if len(whereOrValues) == 1 {
-		whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, whereOrs[0])
-		allValues = append(allValues, whereOrValues[0])
-	} else if len(whereOrValues) > 1 {
-		whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, strings.Join(whereOrs, " OR "))
-		for _, v := range whereOrValues {
-			allValues = append(allValues, v)
+		if len(whereAndValues) == 1 {
+			whereAndStr = fmt.Sprintf("AND %v", whereAnds[0])
+			allValues = append(allValues, whereAndValues[0])
+		} else if len(whereAndValues) > 1 {
+			whereAndStr = fmt.Sprintf("AND %v", strings.Join(whereAnds, " AND "))
+			for _, v := range whereAndValues {
+				allValues = append(allValues, v)
+			}
+		} else {
+			whereAndStr = ""
 		}
-	} else {
-		whereNameAndOrStr = fmt.Sprintf("WHERE %v", whereName)
+
+		whereStr = fmt.Sprintf("%v %v", whereNameAndOrStr, whereAndStr)
+		return whereStr, allValues
 	}
 
-	if len(whereAndValues) == 1 {
-		whereAndStr = fmt.Sprintf("AND %v", whereAnds[0])
-		allValues = append(allValues, whereAndValues[0])
-	} else if len(whereAndValues) > 1 {
-		whereAndStr = fmt.Sprintf("AND %v", strings.Join(whereAnds, " AND "))
-		for _, v := range whereAndValues {
-			allValues = append(allValues, v)
-		}
-	} else {
-		whereAndStr = ""
-	}
-
-	whereStr := fmt.Sprintf("%v %v", whereNameAndOrStr, whereAndStr)
-
-	return whereStr, allValues
 }
 
 //取得多条记录
@@ -584,11 +594,11 @@ func (orm *Orm) FindList(o interface{}) error {
 
 	}
 
-	//fmt.Printf("selectStr=%v\n", selectStr)
-	//fmt.Printf("WhereMap=%v\n", orm.WhereMap)
+	fmt.Printf("selectStr=%v\n", selectStr)
 
 	//WHERE STRING
 	whereStr, paramValue := getWhereStr(orm.WhereMap)
+	fmt.Printf("whereStr=%v\n", whereStr)
 
 	//LIMIT OFFSET
 	j := len(paramValue)
@@ -609,21 +619,29 @@ func (orm *Orm) FindList(o interface{}) error {
 
 	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v %v %v %v", selectStr, orm.TableName, whereStr, orderByStr, limitAndOffsetStr)
 	//orm.ParamValue = whereValues
-
-	//fmt.Printf("SQL=%v\n", orm.SqlStr)
-	//fmt.Printf("SQL VALUES=%v\n", paramValue)
+	fmt.Printf("map=%v\n", orm.WhereMap)
+	fmt.Printf("SQL=%v\n", orm.SqlStr)
+	fmt.Printf("SQL VALUES=%v\n", paramValue)
 
 	results, err := orm.query(orm.SqlStr, paramValue)
 	if err != nil {
 		return err
 	}
 
-	//fmt.Printf("results=%v\n", results)
-	//fmt.Printf("results number=%v\n", len(results))
-	err = orm.scanMapIntoStruct(o, results[0])
-	if err != nil {
-		return err
-	}
+	fmt.Printf("results=%v\n", results)
+	fmt.Printf("results number=%v\n", len(results))
+	/*
+		structValue := reflect.Indirect(reflect.ValueOf(o))
+		structValueType := structValue.Type().Elem()
+		for _, v := range results {
+			newValue := reflect.New(structValueType)
+			err = orm.scanMapIntoStruct(newValue.Interface(), v)
+			if err != nil {
+				return err
+			}
+			structValue.Set(reflect.Append(structValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+		}
+	*/
 
 	return nil
 }
