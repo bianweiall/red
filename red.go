@@ -18,25 +18,54 @@ type Orm struct {
 	//数据库表名
 	TableName string
 	//SQL中参数的值
-	ParamValue []interface{}
+	ParamValues []interface{}
 	//数据库主键，`pk:auto`为自动递增主键，`pk`为不能自动递增主键
 	PKName string
 	//自动主键
 	AutoPKName string
 	//tag为`dt`的字段名
-	DateTimeKey []string
+	DateTimeNames []string
 	//解析struct为一个map，去除了包含"pk"或者是"pk:auto"或者是"dt"的字段和值
 	StructMap map[string]interface{}
 	//过滤字符串
 	FilterStrs []string
-
-	WhereMap map[string]interface{}
 
 	OrderByStr string
 
 	LimitStr int
 
 	OffsetStr int
+
+	WhereStr      string
+	WhereStrValue interface{}
+
+	WhereOrStrs       []string
+	WhereOrStrsValues []interface{}
+
+	WhereAndStrs       []string
+	WhereAndStrsValues []interface{}
+}
+
+func NewOrm() *Orm {
+	orm := Orm{
+		SqlStr:        "",
+		TableName:     "",
+		ParamValues:   make([]interface{}, 0),
+		PKName:        "",
+		AutoPKName:    "",
+		DateTimeNames: make([]string, 0),
+		StructMap:     make(map[string]interface{}),
+		FilterStrs:    make([]string, 0),
+		OrderByStr:    "",
+		LimitStr:      0,
+		OffsetStr:     0,
+		WhereStr:      "",
+		//WhereStrValue:      nil,
+		WhereOrStrs:        make([]string, 0),
+		WhereOrStrsValues:  make([]interface{}, 0),
+		WhereAndStrs:       make([]string, 0),
+		WhereAndStrsValues: make([]interface{}, 0)}
+	return &orm
 }
 
 //设置数据库表名
@@ -59,43 +88,56 @@ func (orm *Orm) Filter(filter string) *Orm {
 
 //设置Where条件
 func (orm *Orm) Where(str string, strValue interface{}) *Orm {
-	nowMap := make(map[string]interface{})
-	nowMap[str] = strValue
-	orm.WhereMap = nowMap
+	if str != "" && strValue != nil {
+		orm.WhereStr = str
+		orm.WhereStrValue = strValue
+	}
 	return orm
 }
 
 //设置WhereOr条件
 func (orm *Orm) WhereOr(str string, strValues ...interface{}) *Orm {
+	var names []string
+	var values []interface{}
 	if strings.Contains(str, ",") == true {
 		strs := strings.Split(str, ",")
 		if len(strs) == len(strValues) {
 			for i := 0; i < len(strs); i++ {
-				orm.WhereMap[fmt.Sprintf("||%v", strings.TrimSpace(strs[i]))] = strValues[i]
+				names = append(names, strs[i])
+				values = append(values, strValues[i])
 			}
 		}
 	} else {
-		if len(strValues) == 1 {
-			orm.WhereMap[fmt.Sprintf("||%v", strings.TrimSpace(str))] = strValues[0]
+		if str != "" && len(strValues) == 1 {
+			names = append(names, str)
+			values = append(values, strValues[0])
 		}
 	}
+	orm.WhereOrStrs = names
+	orm.WhereOrStrsValues = values
 	return orm
 }
 
 //设置WhereAnd条件
 func (orm *Orm) WhereAnd(str string, strValues ...interface{}) *Orm {
+	var names []string
+	var values []interface{}
 	if strings.Contains(str, ",") == true {
 		strs := strings.Split(str, ",")
 		if len(strs) == len(strValues) {
 			for i := 0; i < len(strs); i++ {
-				orm.WhereMap[fmt.Sprintf("&%v", strings.TrimSpace(strs[i]))] = strValues[i]
+				names = append(names, strs[i])
+				values = append(values, strValues[i])
 			}
 		}
 	} else {
-		if len(strValues) == 1 {
-			orm.WhereMap[fmt.Sprintf("&%v", strings.TrimSpace(str))] = strValues[0]
+		if str != "" && len(strValues) == 1 {
+			names = append(names, str)
+			values = append(values, strValues[0])
 		}
 	}
+	orm.WhereAndStrs = names
+	orm.WhereAndStrsValues = values
 	return orm
 }
 
@@ -104,9 +146,7 @@ func (orm *Orm) OrderBy(orderByStrs ...string) *Orm {
 	var strs []string
 	var orderByStr string
 
-	if len(orderByStrs) < 1 {
-		orderByStr = ""
-	} else {
+	if len(orderByStrs) > 0 {
 		for _, v := range orderByStrs {
 			if strings.Contains(v, "-") == true {
 				strs = append(strs, fmt.Sprintf("%v DESC", fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(v, "-")))))
@@ -129,135 +169,28 @@ func (orm *Orm) OrderBy(orderByStrs ...string) *Orm {
 
 //设置Limit
 func (orm *Orm) Limit(limit int) *Orm {
-	orm.LimitStr = limit
+	if limit > 0 {
+		orm.LimitStr = limit
+	}
 	return orm
 }
 
 //设置Offset
 func (orm *Orm) Offset(offset int) *Orm {
-	orm.OffsetStr = offset
+	if offset > 0 {
+		orm.OffsetStr = offset
+	}
 	return orm
-}
-
-//解析STRUCT字段和值到一个MAP中
-func (orm *Orm) scanStructIntoMap(o interface{}) error {
-	if reflect.TypeOf(o).Kind() != reflect.Ptr {
-		return errors.New("要求传入一个struct类型的指针")
-	}
-	structValue := reflect.Indirect(reflect.ValueOf(o))
-	if structValue.Kind() != reflect.Struct {
-		return errors.New("要求传入一个struct类型的指针")
-	}
-
-	t := reflect.TypeOf(o).Elem()
-	v := reflect.ValueOf(o).Elem()
-	var args = make(map[string]interface{})
-	var dateTimes []string
-	var pkName string
-	var j = 0
-
-	for i := 0; i < t.NumField(); i++ {
-		args[t.Field(i).Name] = v.Field(i).Interface()
-
-		if t.Field(i).Tag == "pk:auto" {
-			pkName = t.Field(i).Name
-			orm.AutoPKName = pkName
-			j++
-
-		} else if t.Field(i).Tag == "pk" {
-			pkName = t.Field(i).Name
-			j++
-		} else if t.Field(i).Tag == "dt" {
-			dateTimes = append(dateTimes, t.Field(i).Name)
-		}
-
-		if j > 1 {
-			return errors.New("要求struct字段只能设置一个主键")
-		}
-	}
-
-	if orm.TableName == "" {
-		orm.TableName = fmt.Sprintf("_%v", strings.ToLower(t.Name()))
-	}
-
-	orm.DateTimeKey = dateTimes
-	orm.PKName = pkName
-	orm.StructMap = args
-
-	return nil
-}
-
-//把MAP中的值映射到STRUCT相应字段上
-func (orm *Orm) scanMapIntoStruct(o interface{}, omap map[string][]byte) error {
-	dataStruct := reflect.Indirect(reflect.ValueOf(o))
-	for key, _ := range orm.StructMap {
-		for k, data := range omap {
-			str := fmt.Sprintf("_%v", strings.ToLower(key))
-			if k == str {
-				structField := dataStruct.FieldByName(key)
-				if !structField.CanSet() {
-					continue
-				}
-
-				var v interface{}
-
-				switch structField.Type().Kind() {
-				case reflect.Slice:
-					v = data
-				case reflect.String:
-					v = string(data)
-				case reflect.Bool:
-					v = string(data) == "1"
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
-					x, err := strconv.Atoi(string(data))
-					if err != nil {
-						return errors.New("arg " + key + " as int: " + err.Error())
-					}
-					v = x
-				case reflect.Int64:
-					x, err := strconv.ParseInt(string(data), 10, 64)
-					if err != nil {
-						return errors.New("arg " + key + " as int: " + err.Error())
-					}
-					v = x
-				case reflect.Float32, reflect.Float64:
-					x, err := strconv.ParseFloat(string(data), 64)
-					if err != nil {
-						return errors.New("arg " + key + " as float64: " + err.Error())
-					}
-					v = x
-				case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-					x, err := strconv.ParseUint(string(data), 10, 64)
-					if err != nil {
-						return errors.New("arg " + key + " as int: " + err.Error())
-					}
-					v = x
-				case reflect.Struct:
-					x, _ := time.Parse("2006-01-02 15:04:05.000 -0700", string(data))
-					v = x
-				default:
-					return errors.New("unsupported type in Scan: " + reflect.TypeOf(v).String())
-				}
-
-				structField.Set(reflect.ValueOf(v))
-
-			}
-		}
-	}
-
-	return nil
 }
 
 //持久化到数据库
 func (orm *Orm) Exec() (sql.Result, error) {
-	fmt.Printf("orm.SqlStr:%v\n", orm.SqlStr)
 	stmt, err := orm.Db.Prepare(orm.SqlStr)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	fmt.Printf("orm.ParamValue:%v\n", orm.ParamValue)
-	res, err := stmt.Exec(orm.ParamValue...)
+	res, err := stmt.Exec(orm.ParamValues...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +204,7 @@ func (orm *Orm) Create(o interface{}) error {
 		return err
 	}
 	args := orm.StructMap
-	dt := orm.DateTimeKey
+	dt := orm.DateTimeNames
 
 	delete(args, orm.AutoPKName)
 
@@ -299,7 +232,7 @@ func (orm *Orm) Create(o interface{}) error {
 	tableItemStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
 	valueItemStr := strings.Join(namevlues, ",")
 
-	orm.ParamValue = values
+	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
 
 	_, err = orm.Exec()
@@ -316,7 +249,7 @@ func (orm *Orm) Update(o interface{}) error {
 		return err
 	}
 	args := orm.StructMap
-	dt := orm.DateTimeKey
+	dt := orm.DateTimeNames
 
 	delete(args, orm.AutoPKName)
 
@@ -336,10 +269,11 @@ func (orm *Orm) Update(o interface{}) error {
 		snum++
 	}
 
-	whereStrName, whereValue, err := getOneInMap(orm.WhereMap)
-	if err != nil {
-		return err
+	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
+	if whereStrName == "" || whereValue == nil {
+		return errors.New("where条件NAME不能为空,VALUE不能为nil")
 	}
+
 	values = append(values, whereValue)
 
 	for j := 0; j < len(dt); j++ {
@@ -357,7 +291,7 @@ func (orm *Orm) Update(o interface{}) error {
 	setStr := strings.Join(setStrs, ",")
 	whereStr := fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(whereStrName)), fmt.Sprintf("$%v", snum))
 
-	orm.ParamValue = values
+	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v WHERE %v", orm.TableName, setStr, whereStr)
 
 	_, err = orm.Exec()
@@ -374,13 +308,14 @@ func (orm *Orm) Delete(o interface{}) error {
 		return err
 	}
 
-	whereStrName, whereValue, err := getOneInMap(orm.WhereMap)
-	if err != nil {
-		return err
+	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
+	if whereStrName == "" || whereValue == nil {
+		return errors.New("where条件NAME不能为空,VALUE不能为nil")
 	}
+
 	var values []interface{}
 	values = append(values, whereValue)
-	orm.ParamValue = values
+	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("DELETE FROM %v WHERE %v=$1", orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
 
 	_, err = orm.Exec()
@@ -411,9 +346,9 @@ func (orm *Orm) FindOne(o interface{}) error {
 
 	selectStr := strings.Join(selectStrs, ",")
 
-	whereStrName, whereValue, err := getOneInMap(orm.WhereMap)
-	if err != nil {
-		return err
+	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
+	if whereStrName == "" || whereValue == nil {
+		return errors.New("where条件NAME不能为空,VALUE不能为nil")
 	}
 
 	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v=$1", selectStr, orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
@@ -424,7 +359,7 @@ func (orm *Orm) FindOne(o interface{}) error {
 		return err
 	}
 
-	err = orm.scanMapIntoStruct(o, results[0])
+	err = orm.ScanMapIntoStruct(o, results[0])
 	if err != nil {
 		return err
 	}
@@ -432,18 +367,21 @@ func (orm *Orm) FindOne(o interface{}) error {
 	return nil
 }
 
-//MAP中只有一个key,value时，获取key,value
-func getOneInMap(args map[string]interface{}) (string, interface{}, error) {
-	if len(args) != 1 {
-		return "", nil, errors.New("MAP中只有一个key,value时有用")
+//取得1条记录或多条记录
+func (orm *Orm) Find(o interface{}) ([]map[string][]byte, error) {
+	err := orm.scanStructIntoMap(o)
+	if err != nil {
+		return nil, err
 	}
-	var whereStrName string
-	var whereValue interface{}
-	for k, v := range args {
-		whereStrName = k
-		whereValue = v
+
+	selectSql, values := orm.getSelectSqlAndValues()
+
+	results, err := orm.query(selectSql, values)
+	if err != nil {
+		return nil, err
 	}
-	return whereStrName, whereValue, nil
+
+	return results, nil
 }
 
 func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, error) {
@@ -503,78 +441,64 @@ func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, erro
 	return resultsSlice, nil
 }
 
-func getWhereStr(args map[string]interface{}) (string, []interface{}) {
-	var whereStr, whereName string
-	var whereNameValue interface{}
-	var whereOrs, whereAnds []string
-	var whereOrValues, whereAndValues, allValues []interface{}
-	j := 2
-	if len(args) < 1 {
-		return "", make([]interface{}, 0)
+func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
+	var allValues []interface{}
+	var whereSqlStr, str1, str2 string
+	j := 1
+
+	if orm.WhereStr == "" {
+		whereSqlStr = ""
 	} else {
-		for k, v := range args {
-			if strings.Contains(k, "||") == true {
-				whereOrs = append(whereOrs, fmt.Sprintf("_%v=$%v", strings.ToLower(strings.TrimLeft(k, "||")), j))
-				whereOrValues = append(whereOrValues, v)
+		whereOrStrs := orm.WhereOrStrs
+		if len(whereOrStrs) < 1 {
+			str1 = fmt.Sprintf("WHERE %v=$1", fmt.Sprintf("_%v", strings.ToLower(orm.WhereStr)))
+			allValues = append(allValues, orm.WhereStrValue)
+		} else {
+			allValues = append(allValues, orm.WhereStrValue)
+			for i := 0; i < len(whereOrStrs); i++ {
+				whereOrStrs[i] = fmt.Sprintf("%v=$%v", fmt.Sprintf("_%v", strings.ToLower(whereOrStrs[i])), j+1)
+				allValues = append(allValues, orm.WhereOrStrsValues[i])
 				j++
-			} else if strings.Contains(k, "&") == true {
-				whereAnds = append(whereAnds, fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(k, "&"))))
-				whereAndValues = append(whereAndValues, v)
-			} else {
-				whereName = fmt.Sprintf("_%v=$1", strings.ToLower(k))
-				whereNameValue = v
 			}
+			str1 = fmt.Sprintf("WHERE (%v=$1 OR %v)", fmt.Sprintf("_%v", strings.ToLower(orm.WhereStr)), strings.Join(whereOrStrs, " OR "))
 		}
-
-		for i := 0; i < len(whereAnds); i++ {
-			whereAnds[i] = fmt.Sprintf("%v=$%v", whereAnds[i], j)
-			j++
-		}
-
-		//拼接字符串/所有条件的值
-		var whereNameAndOrStr string
-		var whereAndStr string
-		allValues = append(allValues, whereNameValue)
-		if len(whereOrValues) == 1 {
-			whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, whereOrs[0])
-			allValues = append(allValues, whereOrValues[0])
-		} else if len(whereOrValues) > 1 {
-			whereNameAndOrStr = fmt.Sprintf("WHERE (%v OR %v)", whereName, strings.Join(whereOrs, " OR "))
-			for _, v := range whereOrValues {
-				allValues = append(allValues, v)
-			}
+		whereAndStrs := orm.WhereAndStrs
+		if len(whereAndStrs) < 1 {
+			str2 = ""
 		} else {
-			whereNameAndOrStr = fmt.Sprintf("WHERE %v", whereName)
-		}
-
-		if len(whereAndValues) == 1 {
-			whereAndStr = fmt.Sprintf("AND %v", whereAnds[0])
-			allValues = append(allValues, whereAndValues[0])
-		} else if len(whereAndValues) > 1 {
-			whereAndStr = fmt.Sprintf("AND %v", strings.Join(whereAnds, " AND "))
-			for _, v := range whereAndValues {
-				allValues = append(allValues, v)
+			for i := 0; i < len(whereAndStrs); i++ {
+				whereAndStrs[i] = fmt.Sprintf("%v=$%v", fmt.Sprintf("_%v", strings.ToLower(whereAndStrs[i])), j+1)
+				allValues = append(allValues, orm.WhereAndStrsValues[i])
+				j++
 			}
-		} else {
-			whereAndStr = ""
+			str2 = fmt.Sprintf("AND %v", strings.Join(whereAndStrs, " AND "))
 		}
-
-		whereStr = fmt.Sprintf("%v %v", whereNameAndOrStr, whereAndStr)
-		return whereStr, allValues
+		whereSqlStr = fmt.Sprintf("%v %v", str1, str2)
 	}
 
-}
-
-//取得多条记录
-func (orm *Orm) FindList(o interface{}) error {
-	err := orm.scanStructIntoMap(o)
-	if err != nil {
-		return err
+	//LIMIT OFFSET
+	var limitStr, offsetStr string
+	if orm.LimitStr < 1 {
+		limitStr = ""
+	} else {
+		limitStr = fmt.Sprintf("LIMIT $%v", j+1)
+		var l interface{}
+		l = orm.LimitStr
+		allValues = append(allValues, l)
+		j++
 	}
 
+	if orm.OffsetStr < 1 {
+		offsetStr = ""
+	} else {
+		offsetStr = fmt.Sprintf("OFFSET $%v", j+1)
+		var o interface{}
+		o = orm.OffsetStr
+		allValues = append(allValues, o)
+	}
+
+	//SELECT
 	args := orm.StructMap
-
-	//FILTER过滤不需要的字段
 	fs := orm.FilterStrs
 	var selectStr string
 	if len(fs) < 1 {
@@ -583,65 +507,126 @@ func (orm *Orm) FindList(o interface{}) error {
 		for i := 0; i < len(fs); i++ {
 			delete(args, fs[i])
 		}
-
-		//SELECT拼接条件
 		var selectStrs []string
 		for k, _ := range args {
 			selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
 		}
-
 		selectStr = strings.Join(selectStrs, ",")
-
 	}
 
-	fmt.Printf("selectStr=%v\n", selectStr)
+	selectSql := fmt.Sprintf("SELECT %v FROM %v %v %v %v %v", selectStr, orm.TableName, whereSqlStr, orm.OrderByStr, limitStr, offsetStr)
+	orm.SqlStr = selectSql
+	orm.ParamValues = allValues
 
-	//WHERE STRING
-	whereStr, paramValue := getWhereStr(orm.WhereMap)
-	fmt.Printf("whereStr=%v\n", whereStr)
+	return selectSql, allValues
 
-	//LIMIT OFFSET
-	j := len(paramValue)
-	var limitAndOffsetStr string
-	if orm.LimitStr > 0 && orm.OffsetStr > 0 {
-		var limit, offset interface{}
-		limit = orm.LimitStr
-		offset = orm.OffsetStr
-		paramValue = append(paramValue, limit)
-		paramValue = append(paramValue, offset)
-		limitAndOffsetStr = fmt.Sprintf("LIMIT $%v OFFSET $%v", j+1, j+2)
-	} else {
-		limitAndOffsetStr = ""
+}
+
+//解析STRUCT字段和值到一个MAP中
+func (orm *Orm) scanStructIntoMap(o interface{}) error {
+	if reflect.TypeOf(o).Kind() != reflect.Ptr {
+		return errors.New("要求传入一个struct类型的指针")
+	}
+	structValue := reflect.Indirect(reflect.ValueOf(o))
+	if structValue.Kind() != reflect.Struct {
+		return errors.New("要求传入一个struct类型的指针")
 	}
 
-	//ORDER BY
-	orderByStr := orm.OrderByStr
+	t := reflect.TypeOf(o).Elem()
+	v := reflect.ValueOf(o).Elem()
+	var args = make(map[string]interface{})
+	var dateTimes []string
+	var pkName string
+	var j = 0
 
-	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v %v %v %v", selectStr, orm.TableName, whereStr, orderByStr, limitAndOffsetStr)
-	//orm.ParamValue = whereValues
-	fmt.Printf("map=%v\n", orm.WhereMap)
-	fmt.Printf("SQL=%v\n", orm.SqlStr)
-	fmt.Printf("SQL VALUES=%v\n", paramValue)
+	for i := 0; i < t.NumField(); i++ {
+		args[t.Field(i).Name] = v.Field(i).Interface()
 
-	results, err := orm.query(orm.SqlStr, paramValue)
-	if err != nil {
-		return err
-	}
+		if t.Field(i).Tag == "pk:auto" {
+			pkName = t.Field(i).Name
+			orm.AutoPKName = pkName
+			j++
 
-	fmt.Printf("results=%v\n", results)
-	fmt.Printf("results number=%v\n", len(results))
-	/*
-		structValue := reflect.Indirect(reflect.ValueOf(o))
-		structValueType := structValue.Type().Elem()
-		for _, v := range results {
-			newValue := reflect.New(structValueType)
-			err = orm.scanMapIntoStruct(newValue.Interface(), v)
-			if err != nil {
-				return err
-			}
-			structValue.Set(reflect.Append(structValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+		} else if t.Field(i).Tag == "pk" {
+			pkName = t.Field(i).Name
+			j++
+		} else if t.Field(i).Tag == "dt" {
+			dateTimes = append(dateTimes, t.Field(i).Name)
 		}
-	*/
+
+		if j > 1 {
+			return errors.New("要求struct字段只能设置一个主键")
+		}
+	}
+
+	if orm.TableName == "" {
+		orm.TableName = fmt.Sprintf("_%v", strings.ToLower(t.Name()))
+	}
+
+	orm.DateTimeNames = dateTimes
+	orm.PKName = pkName
+	orm.StructMap = args
+
+	return nil
+}
+
+//把MAP中的值映射到STRUCT相应字段上
+func (orm *Orm) ScanMapIntoStruct(o interface{}, omap map[string][]byte) error {
+	dataStruct := reflect.Indirect(reflect.ValueOf(o))
+	for key, _ := range orm.StructMap {
+		for k, data := range omap {
+			str := fmt.Sprintf("_%v", strings.ToLower(key))
+			if k == str {
+				structField := dataStruct.FieldByName(key)
+				if !structField.CanSet() {
+					continue
+				}
+
+				var v interface{}
+
+				switch structField.Type().Kind() {
+				case reflect.Slice:
+					v = data
+				case reflect.String:
+					v = string(data)
+				case reflect.Bool:
+					v = string(data) == "1"
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
+					x, err := strconv.Atoi(string(data))
+					if err != nil {
+						return errors.New("arg " + key + " as int: " + err.Error())
+					}
+					v = x
+				case reflect.Int64:
+					x, err := strconv.ParseInt(string(data), 10, 64)
+					if err != nil {
+						return errors.New("arg " + key + " as int: " + err.Error())
+					}
+					v = x
+				case reflect.Float32, reflect.Float64:
+					x, err := strconv.ParseFloat(string(data), 64)
+					if err != nil {
+						return errors.New("arg " + key + " as float64: " + err.Error())
+					}
+					v = x
+				case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					x, err := strconv.ParseUint(string(data), 10, 64)
+					if err != nil {
+						return errors.New("arg " + key + " as int: " + err.Error())
+					}
+					v = x
+				case reflect.Struct:
+					x, _ := time.Parse("2006-01-02 15:04:05.000 -0700", string(data))
+					v = x
+				default:
+					return errors.New("unsupported type in Scan: " + reflect.TypeOf(v).String())
+				}
+
+				structField.Set(reflect.ValueOf(v))
+
+			}
+		}
+	}
 
 	return nil
 }
