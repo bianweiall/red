@@ -368,20 +368,36 @@ func (orm *Orm) FindOne(o interface{}) error {
 }
 
 //取得1条记录或多条记录
-func (orm *Orm) Find(o interface{}) ([]map[string][]byte, error) {
-	err := orm.scanStructIntoMap(o)
+func (orm *Orm) Find(slicePtr interface{}) error {
+	sliceValue := reflect.Indirect(reflect.ValueOf(slicePtr))
+	if sliceValue.Kind() != reflect.Slice {
+		return errors.New("需要接收一个指针类型的Slice")
+	}
+
+	sliceElementType := sliceValue.Type().Elem()
+
+	st := reflect.New(sliceElementType)
+	err := orm.scanStructIntoMap(st.Interface())
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	selectSql, values := orm.getSelectSqlAndValues()
-
-	results, err := orm.query(selectSql, values)
+	resultsSlice, err := orm.query(selectSql, values)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return results, nil
+	for _, results := range resultsSlice {
+		newValue := reflect.New(sliceElementType)
+		err = orm.ScanMapIntoStruct(newValue.Interface(), results)
+		if err != nil {
+			return err
+		}
+		sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+	}
+
+	return nil
 }
 
 func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, error) {
