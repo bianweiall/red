@@ -447,7 +447,7 @@ func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, erro
 }
 
 //持久化到数据库
-func (orm *Orm) Exec() (sql.Result, error) {
+func (orm *Orm) exec() (sql.Result, error) {
 	stmt, err := orm.Db.Prepare(orm.SqlStr)
 	if err != nil {
 		return nil, err
