@@ -13,7 +13,7 @@ import (
 
 type Orm struct {
 	Db *sql.DB
-	//需要执行的SQL语句，例如："INSERT INTO %v(%v) VALUES(%v)"，其中3个%v代表Orm类型的TableName,TableItemStr,ValueItemStr字段
+	//需要执行的SQL语句
 	SqlStr string
 	//数据库表名
 	TableName string
@@ -23,9 +23,9 @@ type Orm struct {
 	PKName string
 	//自动主键
 	AutoPKName string
-	//tag为`dt`的字段名
+	//tag为`dt`的字段名,表示日期和时间
 	DateTimeNames []string
-	//解析struct为一个map，去除了包含"pk"或者是"pk:auto"或者是"dt"的字段和值
+	//解析struct为一个map
 	StructMap map[string]interface{}
 	//过滤字符串
 	FilterStrs []string
@@ -182,20 +182,6 @@ func (orm *Orm) Offset(offset int) *Orm {
 	return orm
 }
 
-//持久化到数据库
-func (orm *Orm) Exec() (sql.Result, error) {
-	stmt, err := orm.Db.Prepare(orm.SqlStr)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-	res, err := stmt.Exec(orm.ParamValues...)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
 //保存数据
 func (orm *Orm) Create(o interface{}) error {
 	err := orm.scanStructIntoMap(o)
@@ -234,7 +220,7 @@ func (orm *Orm) Create(o interface{}) error {
 	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
 
-	_, err = orm.Exec()
+	_, err = orm.exec()
 	if err != nil {
 		return err
 	}
@@ -293,7 +279,7 @@ func (orm *Orm) Update(o interface{}) error {
 	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v WHERE %v", orm.TableName, setStr, whereStr)
 
-	_, err = orm.Exec()
+	_, err = orm.exec()
 	if err != nil {
 		return err
 	}
@@ -317,7 +303,7 @@ func (orm *Orm) Delete(o interface{}) error {
 	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("DELETE FROM %v WHERE %v=$1", orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
 
-	_, err = orm.Exec()
+	_, err = orm.exec()
 	if err != nil {
 		return err
 	}
@@ -458,6 +444,20 @@ func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, erro
 		resultsSlice = append(resultsSlice, results)
 	}
 	return resultsSlice, nil
+}
+
+//持久化到数据库
+func (orm *Orm) Exec() (sql.Result, error) {
+	stmt, err := orm.Db.Prepare(orm.SqlStr)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	res, err := stmt.Exec(orm.ParamValues...)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
