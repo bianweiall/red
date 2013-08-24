@@ -62,43 +62,53 @@ orm.Where("Id", 1).Update(&user)
 
 通过Id删除一个User
 ```go
+var user User
 err = orm.Where("Id", 2).Delete(&user)
 ```
 
 通过Id查询一个User
 ```go
+var user User
 err = orm.Where("Id", 2).FindOne(&user)
 ```
+或者是
+```go
+var user User
+err = orm.Where("Id", 2).Find(&user)
+```
+
 如果不想查询Time这个字段
 ```go
+var user User
 err = orm.Filter("Time").Where("Id", 2).FindOne(&user)
 ```
 
 查询User所有记录
 ```go
-err = orm.FindList(&user)
+var users []User
+err = orm.Find(&users)
 ```
 使用WHERE条件查询,并且过滤不需要查询的字段
 ```go
-err = orm.Filter("Time").Where("Age", 50).FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).Find(&users)
 ```
 要排序有"-"表示DESC，没有表示ASC
 ```go
-err = orm.Filter("Time").Where("Age", 50).OrderBy("-Id","Age").FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).OrderBy("-Id","Age").Find(&users)
 ```
 LIMIT OFFSET
 ```go
-err = orm.Filter("Time").Where("Age", 50).OrderBy("-Id","Age").Limit(10).Offset(5).FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).OrderBy("-Id","Age").Limit(10).Offset(5).Find(&users)
 ```
 WHERE OR 相当于SQL: WHERE (_age=50 OR _id=5 OR _id=8)
 ```go
-err = orm.Filter("Time").Where("Age", 50).WhereOr("Id,Id",5,8).OrderBy("-Id","Age").Limit(10).Offset(5).FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).WhereOr("Id,Id",5,8).OrderBy("-Id","Age").Limit(10).Offset(5).Find(&users)
 ```
 WHERE AND 相当于SQL: WHERE _age=50 AND _id=5 AND _name='鸭蛋'
 ```go
-err = orm.Filter("Time").Where("Age", 50).WhereAnd("Id,Name",5,"鸭蛋").OrderBy("-Id","Age").Limit(10).Offset(5).FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).WhereAnd("Id,Name",5,"鸭蛋").OrderBy("-Id","Age").Limit(10).Offset(5).Find(&users)
 ```
 WHERE OR AND 相当于SQL: WHERE (_age=50 OR _name='鸭蛋') AND _id=5
 ```go
-err = orm.Filter("Time").Where("Age", 50).WhereOr("Name","鸭蛋").WhereAnd("Id",5).OrderBy("-Id","Age").Limit(10).Offset(5).FindList(&user)
+err = orm.Filter("Time").Where("Age", 50).WhereOr("Name","鸭蛋").WhereAnd("Id",5).OrderBy("-Id","Age").Limit(10).Offset(5).Find(&users)
 ```

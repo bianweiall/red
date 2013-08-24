@@ -48,19 +48,18 @@ type Orm struct {
 
 func NewOrm() *Orm {
 	orm := Orm{
-		SqlStr:        "",
-		TableName:     "",
-		ParamValues:   make([]interface{}, 0),
-		PKName:        "",
-		AutoPKName:    "",
-		DateTimeNames: make([]string, 0),
-		StructMap:     make(map[string]interface{}),
-		FilterStrs:    make([]string, 0),
-		OrderByStr:    "",
-		LimitStr:      0,
-		OffsetStr:     0,
-		WhereStr:      "",
-		//WhereStrValue:      nil,
+		SqlStr:             "",
+		TableName:          "",
+		ParamValues:        make([]interface{}, 0),
+		PKName:             "",
+		AutoPKName:         "",
+		DateTimeNames:      make([]string, 0),
+		StructMap:          make(map[string]interface{}),
+		FilterStrs:         make([]string, 0),
+		OrderByStr:         "",
+		LimitStr:           0,
+		OffsetStr:          0,
+		WhereStr:           "",
 		WhereOrStrs:        make([]string, 0),
 		WhereOrStrsValues:  make([]interface{}, 0),
 		WhereAndStrs:       make([]string, 0),
@@ -359,7 +358,7 @@ func (orm *Orm) FindOne(o interface{}) error {
 		return err
 	}
 
-	err = orm.ScanMapIntoStruct(o, results[0])
+	err = orm.scanMapIntoStruct(o, results[0])
 	if err != nil {
 		return err
 	}
@@ -370,31 +369,35 @@ func (orm *Orm) FindOne(o interface{}) error {
 //取得1条记录或多条记录
 func (orm *Orm) Find(slicePtr interface{}) error {
 	sliceValue := reflect.Indirect(reflect.ValueOf(slicePtr))
-	if sliceValue.Kind() != reflect.Slice {
-		return errors.New("需要接收一个指针类型的Slice")
-	}
+	if sliceValue.Kind() == reflect.Struct {
+		orm.FindOne(slicePtr)
+	} else {
+		if sliceValue.Kind() != reflect.Slice {
+			return errors.New("需要接收一个指针类型的Slice")
+		}
 
-	sliceElementType := sliceValue.Type().Elem()
+		sliceElementType := sliceValue.Type().Elem()
 
-	st := reflect.New(sliceElementType)
-	err := orm.scanStructIntoMap(st.Interface())
-	if err != nil {
-		return err
-	}
-
-	selectSql, values := orm.getSelectSqlAndValues()
-	resultsSlice, err := orm.query(selectSql, values)
-	if err != nil {
-		return err
-	}
-
-	for _, results := range resultsSlice {
-		newValue := reflect.New(sliceElementType)
-		err = orm.ScanMapIntoStruct(newValue.Interface(), results)
+		st := reflect.New(sliceElementType)
+		err := orm.scanStructIntoMap(st.Interface())
 		if err != nil {
 			return err
 		}
-		sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+
+		selectSql, values := orm.getSelectSqlAndValues()
+		resultsSlice, err := orm.query(selectSql, values)
+		if err != nil {
+			return err
+		}
+
+		for _, results := range resultsSlice {
+			newValue := reflect.New(sliceElementType)
+			err = orm.scanMapIntoStruct(newValue.Interface(), results)
+			if err != nil {
+				return err
+			}
+			sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+		}
 	}
 
 	return nil
@@ -587,7 +590,7 @@ func (orm *Orm) scanStructIntoMap(o interface{}) error {
 }
 
 //把MAP中的值映射到STRUCT相应字段上
-func (orm *Orm) ScanMapIntoStruct(o interface{}, omap map[string][]byte) error {
+func (orm *Orm) scanMapIntoStruct(o interface{}, omap map[string][]byte) error {
 	dataStruct := reflect.Indirect(reflect.ValueOf(o))
 	for key, _ := range orm.StructMap {
 		for k, data := range omap {
