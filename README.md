@@ -5,6 +5,11 @@ RED是一个GO语言的ORM，参考了beedb，主要是用来学习GO语言的�
 
 支持Filter过滤数据库字段，支持SQL (WHERE OR AND) / ORDER BY / LIMIT OFFSET 语句。
 
+安装：
+```go
+go get github.com/bianweiall/red
+```
+
 用法：
 
 定义结构，对应数据库表结构(例如：User=>_user, Id=>_id, Name=>_name, Time=>_time, Age=>_age)
