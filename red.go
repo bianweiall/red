@@ -184,40 +184,11 @@ func (orm *Orm) Offset(offset int) *Orm {
 
 //保存数据
 func (orm *Orm) Create(o interface{}) error {
-	err := orm.scanStructIntoMap(o)
+	err, tableItemStr, valueItemStr := orm.createInfo(o)
 	if err != nil {
 		return err
 	}
-	args := orm.StructMap
-	dt := orm.DateTimeNames
 
-	delete(args, orm.AutoPKName)
-
-	for j := 0; j < len(dt); j++ {
-		delete(args, dt[j])
-	}
-
-	var names []string
-	var namevlues []string
-	var values []interface{}
-
-	for n, v := range args {
-		names = append(names, n)
-		values = append(values, v)
-	}
-
-	for j := 1; j <= len(names); j++ {
-		namevlues = append(namevlues, fmt.Sprintf("$%v", j))
-	}
-
-	for j := 0; j < len(dt); j++ {
-		names = append(names, dt[j])
-		namevlues = append(namevlues, "current_timestamp")
-	}
-	tableItemStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
-	valueItemStr := strings.Join(namevlues, ",")
-
-	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
 
 	_, err = orm.exec()
@@ -225,6 +196,28 @@ func (orm *Orm) Create(o interface{}) error {
 		return err
 	}
 	return nil
+}
+
+//保存数据后返回自增ID
+func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
+	err, tableItemStr, valueItemStr := orm.createInfo(o)
+	if err != nil {
+		return err, 0
+	}
+	sql := fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v) RETURNING _id", orm.TableName, tableItemStr, valueItemStr)
+	rows, err := orm.Db.Query(sql, orm.ParamValues...)
+	if err != nil {
+		return err, 0
+	}
+
+	var id int
+	for rows.Next() {
+		err := rows.Scan(&id)
+		if err != nil {
+			return err, 0
+		}
+	}
+	return nil, id
 }
 
 //更新数据
@@ -648,4 +641,45 @@ func (orm *Orm) scanMapIntoStruct(o interface{}, omap map[string][]byte) error {
 	}
 
 	return nil
+}
+
+//保存信息
+func (orm *Orm) createInfo(o interface{}) (error, string, string) {
+	err := orm.scanStructIntoMap(o)
+	if err != nil {
+		return err, "", ""
+	}
+	args := orm.StructMap
+	dt := orm.DateTimeNames
+
+	delete(args, orm.AutoPKName)
+
+	for j := 0; j < len(dt); j++ {
+		delete(args, dt[j])
+	}
+
+	var names []string
+	var namevlues []string
+	var values []interface{}
+
+	for n, v := range args {
+		names = append(names, n)
+		values = append(values, v)
+	}
+
+	for j := 1; j <= len(names); j++ {
+		namevlues = append(namevlues, fmt.Sprintf("$%v", j))
+	}
+
+	for j := 0; j < len(dt); j++ {
+		names = append(names, dt[j])
+		namevlues = append(namevlues, "current_timestamp")
+	}
+	tableItemStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
+	valueItemStr := strings.Join(namevlues, ",")
+
+	orm.ParamValues = values
+
+	return nil, tableItemStr, valueItemStr
+
 }
