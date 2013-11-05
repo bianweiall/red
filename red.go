@@ -1,10 +1,10 @@
-// red project red.go
 package red
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+	_ "github.com/lxn/go-pgsql"
 	"reflect"
 	"strconv"
 	"strings"
@@ -46,25 +46,31 @@ type Orm struct {
 	WhereAndStrsValues []interface{}
 }
 
-func NewOrm() *Orm {
-	orm := Orm{
-		SqlStr:             "",
-		TableName:          "",
-		ParamValues:        make([]interface{}, 0),
-		PKName:             "",
-		AutoPKName:         "",
-		DateTimeNames:      make([]string, 0),
-		StructMap:          make(map[string]interface{}),
-		FilterStrs:         make([]string, 0),
-		OrderByStr:         "",
-		LimitStr:           0,
-		OffsetStr:          0,
-		WhereStr:           "",
-		WhereOrStrs:        make([]string, 0),
-		WhereOrStrsValues:  make([]interface{}, 0),
-		WhereAndStrs:       make([]string, 0),
-		WhereAndStrsValues: make([]interface{}, 0)}
-	return &orm
+func (orm *Orm) InitOrm() {
+	orm.SqlStr = ""
+	orm.TableName = ""
+	orm.ParamValues = make([]interface{}, 0)
+	orm.PKName = ""
+	orm.AutoPKName = ""
+	orm.DateTimeNames = make([]string, 0)
+	orm.StructMap = make(map[string]interface{})
+	orm.FilterStrs = make([]string, 0)
+	orm.OrderByStr = ""
+	orm.LimitStr = 0
+	orm.OffsetStr = 0
+	orm.WhereStr = ""
+	orm.WhereOrStrs = make([]string, 0)
+	orm.WhereOrStrsValues = make([]interface{}, 0)
+	orm.WhereAndStrs = make([]string, 0)
+	orm.WhereAndStrsValues = make([]interface{}, 0)
+}
+
+func New() *Orm {
+	db, err := sql.Open("postgres", "user=root password=cc1314 dbname=bwgreen sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+	return &Orm{Db: db}
 }
 
 //设置数据库表名
@@ -184,6 +190,7 @@ func (orm *Orm) Offset(offset int) *Orm {
 
 //保存数据
 func (orm *Orm) Create(o interface{}) error {
+	defer orm.InitOrm()
 	err, tableItemStr, valueItemStr := orm.createInfo(o)
 	if err != nil {
 		return err
@@ -200,6 +207,7 @@ func (orm *Orm) Create(o interface{}) error {
 
 //保存数据后返回自增ID
 func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
+	defer orm.InitOrm()
 	err, tableItemStr, valueItemStr := orm.createInfo(o)
 	if err != nil {
 		return err, 0
@@ -222,6 +230,7 @@ func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
 
 //更新数据
 func (orm *Orm) Update(o interface{}) error {
+	defer orm.InitOrm()
 	err := orm.scanStructIntoMap(o)
 	if err != nil {
 		return err
@@ -281,6 +290,7 @@ func (orm *Orm) Update(o interface{}) error {
 
 //删除数据
 func (orm *Orm) Delete(o interface{}) error {
+	defer orm.InitOrm()
 	err := orm.scanStructIntoMap(o)
 	if err != nil {
 		return err
@@ -305,6 +315,7 @@ func (orm *Orm) Delete(o interface{}) error {
 
 //取得一条记录
 func (orm *Orm) FindOne(o interface{}) error {
+	defer orm.InitOrm()
 	err := orm.scanStructIntoMap(o)
 	if err != nil {
 		return err
@@ -347,6 +358,7 @@ func (orm *Orm) FindOne(o interface{}) error {
 
 //取得1条记录或多条记录
 func (orm *Orm) Find(slicePtr interface{}) error {
+	defer orm.InitOrm()
 	sliceValue := reflect.Indirect(reflect.ValueOf(slicePtr))
 	if sliceValue.Kind() == reflect.Struct {
 		orm.FindOne(slicePtr)
@@ -364,6 +376,7 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 		}
 
 		selectSql, values := orm.getSelectSqlAndValues()
+
 		resultsSlice, err := orm.query(selectSql, values)
 		if err != nil {
 			return err
