@@ -22,15 +22,9 @@ type User struct {
 }
 ```
 
-打开数据库连接
+取得Orm
 ```go
-func OpenDB() (*sql.DB, error) {
-    db, err := sql.Open("postgres", "user=root password=cc1314 dbname=pgdemo01 sslmode=disable")
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
-}
+orm := red.New()
 ```
 
 ```go
