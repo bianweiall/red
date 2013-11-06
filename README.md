@@ -24,18 +24,16 @@ type User struct {
 
 取得Orm
 ```go
-orm := red.New()
+err, orm := red.New()
 ```
 
 ```go
 func main() {
     var user User
-	var orm red.Orm
-	db, err := OpenDB()
+	err, orm := red.New()
 	if err != nil {
 		panic(err)
 	}
-	orm.Db = db
 	err = orm.Filter("Time").Where("Id", 1).FindOne(&user)
 	if err != nil {
 		panic(err)

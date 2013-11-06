@@ -65,12 +65,12 @@ func (orm *Orm) InitOrm() {
 	orm.WhereAndStrsValues = make([]interface{}, 0)
 }
 
-func New() *Orm {
+func New() (error,*Orm) {
 	db, err := sql.Open("postgres", "user=root password=cc1314 dbname=bwgreen sslmode=disable")
 	if err != nil {
-		panic(err)
+		return err,nil
 	}
-	return &Orm{Db: db}
+	return nil,&Orm{Db: db}
 }
 
 //设置数据库表名
