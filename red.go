@@ -65,8 +65,8 @@ func (orm *Orm) InitOrm() {
 	orm.WhereAndStrsValues = make([]interface{}, 0)
 }
 
-func New() (error,*Orm) {
-	db, err := sql.Open("postgres", "user=root password=cc1314 dbname=bwgreen sslmode=disable")
+func New(driverName, dataSourceName string) (error,*Orm) {
+	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
 		return err,nil
 	}
