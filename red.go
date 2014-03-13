@@ -36,6 +36,8 @@ type Orm struct {
 
 	OffsetStr int
 
+	LikeStr string
+
 	WhereStr      string
 	WhereStrValue interface{}
 
@@ -58,6 +60,7 @@ func (orm *Orm) InitOrm() {
 	orm.OrderByStr = ""
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
+	orm.LikeStr = ""
 	orm.WhereStr = ""
 	orm.WhereOrStrs = make([]string, 0)
 	orm.WhereOrStrsValues = make([]interface{}, 0)
@@ -65,12 +68,12 @@ func (orm *Orm) InitOrm() {
 	orm.WhereAndStrsValues = make([]interface{}, 0)
 }
 
-func New(driverName, dataSourceName string) (error,*Orm) {
+func New(driverName, dataSourceName string) (error, *Orm) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
-		return err,nil
+		return err, nil
 	}
-	return nil,&Orm{Db: db}
+	return nil, &Orm{Db: db}
 }
 
 //设置数据库表名
@@ -101,7 +104,7 @@ func (orm *Orm) Where(str string, strValue interface{}) *Orm {
 }
 
 //设置WhereOr条件
-func (orm *Orm) WhereOr(str string, strValues ...interface{}) *Orm {
+func (orm *Orm) Or(str string, strValues ...interface{}) *Orm {
 	var names []string
 	var values []interface{}
 	if strings.Contains(str, ",") == true {
@@ -124,7 +127,7 @@ func (orm *Orm) WhereOr(str string, strValues ...interface{}) *Orm {
 }
 
 //设置WhereAnd条件
-func (orm *Orm) WhereAnd(str string, strValues ...interface{}) *Orm {
+func (orm *Orm) And(str string, strValues ...interface{}) *Orm {
 	var names []string
 	var values []interface{}
 	if strings.Contains(str, ",") == true {
@@ -143,6 +146,12 @@ func (orm *Orm) WhereAnd(str string, strValues ...interface{}) *Orm {
 	}
 	orm.WhereAndStrs = names
 	orm.WhereAndStrsValues = values
+	return orm
+}
+
+//设置LIKE
+func (orm *Orm) Like(str string) *Orm {
+	orm.LikeStr = fmt.Sprintf("%v%v%v", "%", str, "%")
 	return orm
 }
 
@@ -313,9 +322,51 @@ func (orm *Orm) Delete(o interface{}) error {
 	return nil
 }
 
-//取得一条记录
-func (orm *Orm) FindOne(o interface{}) error {
+//取得1条记录或多条记录
+func (orm *Orm) Find(slicePtr interface{}) error {
 	defer orm.InitOrm()
+	sliceValue := reflect.Indirect(reflect.ValueOf(slicePtr))
+	if sliceValue.Kind() == reflect.Struct { //取得一条记录
+		err := orm.findOne(slicePtr)
+		if err != nil {
+			return err
+		}
+	} else { //取得多条记录
+		if sliceValue.Kind() != reflect.Slice {
+			return errors.New("需要接收一个指针类型的Slice")
+		}
+
+		sliceElementType := sliceValue.Type().Elem()
+
+		st := reflect.New(sliceElementType)
+		err := orm.scanStructIntoMap(st.Interface())
+		if err != nil {
+			return err
+		}
+
+		selectSql, values := orm.getSelectSqlAndValues()
+
+		resultsSlice, err := orm.query(selectSql, values)
+		if err != nil {
+			return err
+		}
+
+		for _, results := range resultsSlice {
+			newValue := reflect.New(sliceElementType)
+			err = orm.scanMapIntoStruct(newValue.Interface(), results)
+			if err != nil {
+				return err
+			}
+			sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+		}
+	}
+
+	return nil
+}
+
+//取得一条记录
+func (orm *Orm) findOne(o interface{}) error {
+	//defer orm.InitOrm()
 	err := orm.scanStructIntoMap(o)
 	if err != nil {
 		return err
@@ -351,45 +402,6 @@ func (orm *Orm) FindOne(o interface{}) error {
 	err = orm.scanMapIntoStruct(o, results[0])
 	if err != nil {
 		return err
-	}
-
-	return nil
-}
-
-//取得1条记录或多条记录
-func (orm *Orm) Find(slicePtr interface{}) error {
-	defer orm.InitOrm()
-	sliceValue := reflect.Indirect(reflect.ValueOf(slicePtr))
-	if sliceValue.Kind() == reflect.Struct {
-		orm.FindOne(slicePtr)
-	} else {
-		if sliceValue.Kind() != reflect.Slice {
-			return errors.New("需要接收一个指针类型的Slice")
-		}
-
-		sliceElementType := sliceValue.Type().Elem()
-
-		st := reflect.New(sliceElementType)
-		err := orm.scanStructIntoMap(st.Interface())
-		if err != nil {
-			return err
-		}
-
-		selectSql, values := orm.getSelectSqlAndValues()
-
-		resultsSlice, err := orm.query(selectSql, values)
-		if err != nil {
-			return err
-		}
-
-		for _, results := range resultsSlice {
-			newValue := reflect.New(sliceElementType)
-			err = orm.scanMapIntoStruct(newValue.Interface(), results)
-			if err != nil {
-				return err
-			}
-			sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
-		}
 	}
 
 	return nil
