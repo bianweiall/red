@@ -36,16 +36,8 @@ type Orm struct {
 
 	OffsetStr int
 
-	LikeStr string
-
 	WhereStr      string
-	WhereStrValue interface{}
-
-	WhereOrStrs       []string
-	WhereOrStrsValues []interface{}
-
-	WhereAndStrs       []string
-	WhereAndStrsValues []interface{}
+	WhereStrValue []interface{}
 }
 
 func (orm *Orm) InitOrm() {
@@ -60,7 +52,6 @@ func (orm *Orm) InitOrm() {
 	orm.OrderByStr = ""
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
-	orm.LikeStr = ""
 	orm.WhereStr = ""
 	orm.WhereOrStrs = make([]string, 0)
 	orm.WhereOrStrsValues = make([]interface{}, 0)
@@ -95,63 +86,25 @@ func (orm *Orm) Filter(filter string) *Orm {
 }
 
 //设置Where条件
-func (orm *Orm) Where(str string, strValue interface{}) *Orm {
+func (orm *Orm) Where(str string, strValue ...interface{}) *Orm {
 	if str != "" && strValue != nil {
-		orm.WhereStr = str
-		orm.WhereStrValue = strValue
-	}
-	return orm
-}
-
-//设置WhereOr条件
-func (orm *Orm) Or(str string, strValues ...interface{}) *Orm {
-	var names []string
-	var values []interface{}
-	if strings.Contains(str, ",") == true {
-		strs := strings.Split(str, ",")
-		if len(strs) == len(strValues) {
-			for i := 0; i < len(strs); i++ {
-				names = append(names, strs[i])
-				values = append(values, strValues[i])
+		//orm.WhereStr = str
+		//orm.WhereStrValue = strValue
+		num := strings.Count(str, "?")
+		if num > 0 {
+			if num == len(strValue) {
+				if num == 1 {
+					strings.Replace(str, "?", "$1", 1)
+				} else {
+					for i = 1; i <= num; i++ {
+						strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
+					}
+				}
+				orm.WhereStr = str
+				orm.WhereStrValue = strValue
 			}
 		}
-	} else {
-		if str != "" && len(strValues) == 1 {
-			names = append(names, str)
-			values = append(values, strValues[0])
-		}
 	}
-	orm.WhereOrStrs = names
-	orm.WhereOrStrsValues = values
-	return orm
-}
-
-//设置WhereAnd条件
-func (orm *Orm) And(str string, strValues ...interface{}) *Orm {
-	var names []string
-	var values []interface{}
-	if strings.Contains(str, ",") == true {
-		strs := strings.Split(str, ",")
-		if len(strs) == len(strValues) {
-			for i := 0; i < len(strs); i++ {
-				names = append(names, strs[i])
-				values = append(values, strValues[i])
-			}
-		}
-	} else {
-		if str != "" && len(strValues) == 1 {
-			names = append(names, str)
-			values = append(values, strValues[0])
-		}
-	}
-	orm.WhereAndStrs = names
-	orm.WhereAndStrsValues = values
-	return orm
-}
-
-//设置LIKE
-func (orm *Orm) Like(str string) *Orm {
-	orm.LikeStr = fmt.Sprintf("%v%v%v", "%", str, "%")
 	return orm
 }
 
@@ -367,39 +320,38 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 //取得一条记录
 func (orm *Orm) findOne(o interface{}) error {
 	//defer orm.InitOrm()
-	err := orm.scanStructIntoMap(o)
+	err := orm.scanStructIntoMap(o) //把一个struct信息保存到一个map中
 	if err != nil {
 		return err
 	}
 
-	args := orm.StructMap
-	fs := orm.FilterStrs
+	args := orm.StructMap //获取上面保存的map
+	fs := orm.FilterStrs  //获取需要过滤掉的字段
 
 	for i := 0; i < len(fs); i++ {
-		delete(args, fs[i])
+		delete(args, fs[i]) //从map中删除需要过滤的字段
 	}
 
-	var selectStrs []string
+	var selectStrs []string //定义一个保存所有SELECT字段的数组
 	for k, _ := range args {
-		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
+		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k))) //每个字段所有字母全部小写，并加上“_”前缀，对应数据库中的字段
 	}
 
-	selectStr := strings.Join(selectStrs, ",")
+	selectStr := strings.Join(selectStrs, ",") //合成SELECT字符串
 
-	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
-	if whereStrName == "" || whereValue == nil {
-		return errors.New("where条件NAME不能为空,VALUE不能为nil")
+	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue //获取SQL WHERE语句和WHERE语句中所有？代表的值的集合
+	if whereStrName == "" {
+		return errors.New("where()参数输入错误")
 	}
 
-	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v=$1", selectStr, orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
-	var wValue []interface{}
-	wValue = append(wValue, whereValue)
-	results, err := orm.query(orm.SqlStr, wValue)
+	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v", selectStr, orm.TableName, whereStrName) //合成SQL语句
+
+	results, err := orm.query(orm.SqlStr, whereValue) //执行query，返回一个map数组
 	if err != nil {
 		return err
 	}
 
-	err = orm.scanMapIntoStruct(o, results[0])
+	err = orm.scanMapIntoStruct(o, results[0]) //把上面的MAP映射到一个struct中
 	if err != nil {
 		return err
 	}
@@ -407,8 +359,8 @@ func (orm *Orm) findOne(o interface{}) error {
 	return nil
 }
 
-func (orm *Orm) query(str string, args []interface{}) ([]map[string][]byte, error) {
-	rows, err := orm.Db.Query(str, args...)
+func (orm *Orm) query(sqlStr string, args []interface{}) ([]map[string][]byte, error) {
+	rows, err := orm.Db.Query(sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -479,38 +431,14 @@ func (orm *Orm) exec() (sql.Result, error) {
 }
 
 func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
-	var allValues []interface{}
-	var whereSqlStr, str1, str2 string
-	j := 1
-
-	if orm.WhereStr == "" {
-		whereSqlStr = ""
+	//var allValues []interface{}
+	//WHERE
+	whereStr, whereStrValue := orm.WhereStr, orm.WhereStrValue
+	var j int
+	if whereStr == "" {
+		j = 0
 	} else {
-		whereOrStrs := orm.WhereOrStrs
-		if len(whereOrStrs) < 1 {
-			str1 = fmt.Sprintf("WHERE %v=$1", fmt.Sprintf("_%v", strings.ToLower(orm.WhereStr)))
-			allValues = append(allValues, orm.WhereStrValue)
-		} else {
-			allValues = append(allValues, orm.WhereStrValue)
-			for i := 0; i < len(whereOrStrs); i++ {
-				whereOrStrs[i] = fmt.Sprintf("%v=$%v", fmt.Sprintf("_%v", strings.ToLower(whereOrStrs[i])), j+1)
-				allValues = append(allValues, orm.WhereOrStrsValues[i])
-				j++
-			}
-			str1 = fmt.Sprintf("WHERE (%v=$1 OR %v)", fmt.Sprintf("_%v", strings.ToLower(orm.WhereStr)), strings.Join(whereOrStrs, " OR "))
-		}
-		whereAndStrs := orm.WhereAndStrs
-		if len(whereAndStrs) < 1 {
-			str2 = ""
-		} else {
-			for i := 0; i < len(whereAndStrs); i++ {
-				whereAndStrs[i] = fmt.Sprintf("%v=$%v", fmt.Sprintf("_%v", strings.ToLower(whereAndStrs[i])), j+1)
-				allValues = append(allValues, orm.WhereAndStrsValues[i])
-				j++
-			}
-			str2 = fmt.Sprintf("AND %v", strings.Join(whereAndStrs, " AND "))
-		}
-		whereSqlStr = fmt.Sprintf("%v %v", str1, str2)
+		j = len(whereStrValue)
 	}
 
 	//LIMIT OFFSET
@@ -521,7 +449,8 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 		limitStr = fmt.Sprintf("LIMIT $%v", j+1)
 		var l interface{}
 		l = orm.LimitStr
-		allValues = append(allValues, l)
+		//allValues = append(allValues, l)
+		whereStrValue = append(whereStrValue, l)
 		j++
 	}
 
@@ -531,7 +460,8 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 		offsetStr = fmt.Sprintf("OFFSET $%v", j+1)
 		var o interface{}
 		o = orm.OffsetStr
-		allValues = append(allValues, o)
+		//allValues = append(allValues, o)
+		whereStrValue = append(whereStrValue, o)
 	}
 
 	//SELECT
@@ -551,11 +481,10 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 		selectStr = strings.Join(selectStrs, ",")
 	}
 
-	selectSql := fmt.Sprintf("SELECT %v FROM %v %v %v %v %v", selectStr, orm.TableName, whereSqlStr, orm.OrderByStr, limitStr, offsetStr)
+	selectSql := fmt.Sprintf("SELECT %v FROM %v %v %v %v %v", selectStr, orm.TableName, whereStr, orm.OrderByStr, limitStr, offsetStr)
 	orm.SqlStr = selectSql
-	orm.ParamValues = allValues
 
-	return selectSql, allValues
+	return selectSql, whereStrValue
 
 }
 
