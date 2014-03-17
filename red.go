@@ -29,7 +29,7 @@ type Orm struct {
 	//解析struct为一个map
 	StructMap map[string]interface{}
 	//过滤字符串
-	FilterStrs []string
+	SelectStrs []string
 	//ORDER BY字符串
 	OrderByStr string
 	//LIMIT字符串
@@ -50,13 +50,14 @@ func (orm *Orm) InitOrm() {
 	orm.AutoPKName = ""
 	orm.DateTimeNames = make([]string, 0)
 	orm.StructMap = make(map[string]interface{})
-	orm.FilterStrs = make([]string, 0)
+	orm.SelectStrs = make([]string, 0)
 	orm.OrderByStr = ""
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
 	orm.WhereStr = ""
 }
 
+//New一个Orm对象
 func New(driverName, dataSourceName string) (error, *Orm) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
@@ -65,7 +66,7 @@ func New(driverName, dataSourceName string) (error, *Orm) {
 	return nil, &Orm{Db: db}
 }
 
-//设置数据库表名，参数tableName格式："_" + 英文字母小写(例如：“_bookinfo”)
+//设置数据库表名，参数tableName格式："_" + 英文字母小写(对应数据库中的表名，例如：“_bookinfo”)
 func (orm *Orm) SetTableName(tableName string) *Orm {
 	if tableName != "" {
 		//正则匹配
@@ -76,37 +77,89 @@ func (orm *Orm) SetTableName(tableName string) *Orm {
 	return orm
 }
 
-//设置过滤条件
-func (orm *Orm) Filter(filter string) *Orm {
+//设置需要选择的数据库字段,参数str格式："_" + 英文字母小写(对应数据库中的字段，例如：“_id”)
+func (orm *Orm) Select(str string) *Orm {
 	var strs []string
-	if filter != "" {
-		if strings.Contains(filter, ",") == true {
-			strs = strings.Split(filter, ",")
-			orm.FilterStrs = strs
+	if str != "" {
+		//如果字符串中有","
+		if strings.Contains(str, ",") == true {
+			//用","把字符串分割成字符串数组
+			strs = strings.Split(str, ",")
+			var i = true
+			for _, v := range strs {
+				//正则匹配
+				if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+					//正则不匹配i=false，并break
+					i = false
+					break
+				}
+			}
+			if i == true {
+				orm.SelectStrs = strs
+			}
 		} else {
-			orm.FilterStrs = append(strs, filter)
+			//正则匹配
+			if regexp.MustCompile(`^_[a-z]+\b`).MatchString(str) == true {
+				orm.SelectStrs = append(strs, str)
+			}
 		}
 	}
 	return orm
 }
 
-//设置Where条件
+//设置Where条件,str参数中数据库字段格式："_" + 英文字母小写，其他都用英文字母小写
 func (orm *Orm) Where(str string, strValue ...interface{}) *Orm {
 	if str != "" && strValue != nil {
-		//orm.WhereStr = str
-		//orm.WhereStrValue = strValue
+		//所有英文字母小写
+		str = strings.ToLower(str)
+		//fmt.Println("小写：", str)
+		//计算"?"有几个
 		num := strings.Count(str, "?")
+		//fmt.Println("?个数：", num)
 		if num > 0 {
 			if num == len(strValue) {
-				if num == 1 {
-					strings.Replace(str, "?", "$1", 1)
-				} else {
-					for i := 1; i <= num; i++ {
-						strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
+				//用"?"分割成字符串数组
+				strs := strings.Split(str, "?")
+				fmt.Println("分割后的数组：", strs)
+				//循环删除如下字符，得到字段名
+				for _, v := range strs {
+					v = strings.Trim(v, "and")
+					v = strings.Trim(v, "or")
+					v = strings.Trim(v, "=")
+					v = strings.Trim(v, "<>")
+					v = strings.Trim(v, "!=")
+					v = strings.Trim(v, ">")
+					v = strings.Trim(v, "<")
+					v = strings.Trim(v, ">=")
+					v = strings.Trim(v, "<=")
+					v = strings.Trim(v, "between")
+					v = strings.Trim(v, "like")
+					v = strings.Trim(v, " ")
+				}
+				fmt.Println("分割后的数组2：", strs)
+				i := true
+				//循环匹配是否符合要求
+				for _, v := range strs {
+					//正则匹配
+					if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+						//正则不匹配i=false，并break
+						i = false
+						break
 					}
 				}
-				orm.WhereStr = str
-				orm.WhereStrValue = strValue
+				if i == true {
+					if num == 1 {
+						//用"S1"替换"?"
+						strings.Replace(str, "?", "$1", 1)
+					} else {
+						//循环用占位符替换"?"
+						for i := 1; i <= num; i++ {
+							strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
+						}
+					}
+					orm.WhereStr = str
+					orm.ParamValues = strValue
+				}
 			}
 		}
 	}
@@ -392,7 +445,7 @@ func (orm *Orm) findOne(o interface{}) error {
 	}
 
 	args := orm.StructMap //获取上面保存的map
-	fs := orm.FilterStrs  //获取需要过滤掉的字段
+	fs := orm.SelectStrs  //获取需要过滤掉的字段
 
 	for i := 0; i < len(fs); i++ {
 		delete(args, fs[i]) //从map中删除需要过滤的字段
@@ -532,7 +585,7 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 
 	//SELECT
 	args := orm.StructMap
-	fs := orm.FilterStrs
+	fs := orm.SelectStrs
 	var selectStr string
 	if len(fs) < 1 {
 		selectStr = "*"
