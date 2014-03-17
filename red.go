@@ -6,6 +6,7 @@ import (
 	"fmt"
 	_ "github.com/lxn/go-pgsql"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ type Orm struct {
 	TableName string
 	//SQL中参数的值
 	ParamValues []interface{}
-	//数据库主键，`pk:auto`为自动递增主键，`pk`为不能自动递增主键
+	//数据库主键，tag是`pk:auto`为自动递增主键，`pk`为不能自动递增主键
 	PKName string
 	//自动主键
 	AutoPKName string
@@ -29,14 +30,15 @@ type Orm struct {
 	StructMap map[string]interface{}
 	//过滤字符串
 	FilterStrs []string
-
+	//ORDER BY字符串
 	OrderByStr string
-
+	//LIMIT字符串
 	LimitStr int
-
+	//OFFSET字符串
 	OffsetStr int
-
-	WhereStr      string
+	//WHERE字符串
+	WhereStr string
+	//WHERE字符串中值
 	WhereStrValue []interface{}
 }
 
@@ -53,10 +55,6 @@ func (orm *Orm) InitOrm() {
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
 	orm.WhereStr = ""
-	orm.WhereOrStrs = make([]string, 0)
-	orm.WhereOrStrsValues = make([]interface{}, 0)
-	orm.WhereAndStrs = make([]string, 0)
-	orm.WhereAndStrsValues = make([]interface{}, 0)
 }
 
 func New(driverName, dataSourceName string) (error, *Orm) {
@@ -67,20 +65,27 @@ func New(driverName, dataSourceName string) (error, *Orm) {
 	return nil, &Orm{Db: db}
 }
 
-//设置数据库表名
-func (orm *Orm) SetTableName(tabeName string) *Orm {
-	orm.TableName = tabeName
+//设置数据库表名，参数tableName格式："_" + 英文字母小写(例如：“_bookinfo”)
+func (orm *Orm) SetTableName(tableName string) *Orm {
+	if tableName != "" {
+		//正则匹配
+		if regexp.MustCompile(`^_[a-z]+\b`).MatchString(tableName) == true {
+			orm.TableName = tableName
+		}
+	}
 	return orm
 }
 
 //设置过滤条件
 func (orm *Orm) Filter(filter string) *Orm {
 	var strs []string
-	if strings.Contains(filter, ",") == true {
-		strs = strings.Split(filter, ",")
-		orm.FilterStrs = strs
-	} else {
-		orm.FilterStrs = append(strs, filter)
+	if filter != "" {
+		if strings.Contains(filter, ",") == true {
+			strs = strings.Split(filter, ",")
+			orm.FilterStrs = strs
+		} else {
+			orm.FilterStrs = append(strs, filter)
+		}
 	}
 	return orm
 }
@@ -96,7 +101,7 @@ func (orm *Orm) Where(str string, strValue ...interface{}) *Orm {
 				if num == 1 {
 					strings.Replace(str, "?", "$1", 1)
 				} else {
-					for i = 1; i <= num; i++ {
+					for i := 1; i <= num; i++ {
 						strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
 					}
 				}
@@ -150,17 +155,73 @@ func (orm *Orm) Offset(offset int) *Orm {
 	return orm
 }
 
+//传入一个struct对象，返回错误和两个字符串，此两个字符串用于拼接SQL字符串的
+//例如有一个SQL语句:INSERT INTO table_name (_id,_name,_age) VALUES ($1,$2,$3)
+//返回的第一个string代表字段名字符串(类似上面“_id,_name,_age”处)，返回的第二个string代表字段值占位符字符串(类似上面“$1,$2,$3”处)
+func (orm *Orm) getInsertStr(o interface{}) (error, string, string) {
+	//把一个struct类型的值保存到一个map中
+	err := orm.scanStructIntoMap(o)
+	if err != nil {
+		return err, "", ""
+	}
+	//获取刚刚保存的map
+	args := orm.StructMap
+	//获取表示时间和日期的字段
+	dt := orm.DateTimeNames
+	//删除表示自动主键的字段
+	delete(args, orm.AutoPKName)
+	//循环删除表示时间和日期的字段
+	for j := 0; j < len(dt); j++ {
+		delete(args, dt[j])
+	}
+	//定义保存字段名的数组
+	var names []string
+	//定义保存字段值占位符的字符串数组
+	var namevlues []string
+	//定义保存字段值的数组
+	var values []interface{}
+	//循环把map中的字段名和值保存到数组中
+	for n, v := range args {
+		names = append(names, n)
+		values = append(values, v)
+	}
+
+	//通过字段的个数把占位符添加到数组中
+	for j := 1; j <= len(names); j++ {
+		namevlues = append(namevlues, fmt.Sprintf("$%v", j))
+	}
+
+	//将表示时间和日期的字段添加到数组
+	//将"current_timestamp"添加到占位符数组
+	for j := 0; j < len(dt); j++ {
+		names = append(names, dt[j])
+		namevlues = append(namevlues, "current_timestamp")
+	}
+	//合成插入字段字符串（类似"_id,_name,_age"）
+	insertFieldStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
+	//合成字段值占位符字符串（类似"$1,$2,$3,current_timestamp"）
+	insertValueStr := strings.Join(namevlues, ",")
+	//保存字段值到orm
+	orm.ParamValues = values
+
+	return nil, insertFieldStr, insertValueStr
+
+}
+
 //保存数据
 func (orm *Orm) Create(o interface{}) error {
+	//关闭资源
 	defer orm.InitOrm()
-	err, tableItemStr, valueItemStr := orm.createInfo(o)
+	//取得需要保存到数据库中的字段名字符串和字段值占位符字符串
+	err, tableItemStr, valueItemStr := orm.getInsertStr(o)
 	if err != nil {
 		return err
 	}
-
+	//合成INSERT语句
 	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
-
+	//持久化到数据库
 	_, err = orm.exec()
+
 	if err != nil {
 		return err
 	}
@@ -169,12 +230,16 @@ func (orm *Orm) Create(o interface{}) error {
 
 //保存数据后返回自增ID
 func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
+	//关闭资源
 	defer orm.InitOrm()
-	err, tableItemStr, valueItemStr := orm.createInfo(o)
+	//取得需要保存到数据库中的字段名字符串和字段值占位符字符串
+	err, tableItemStr, valueItemStr := orm.getInsertStr(o)
 	if err != nil {
 		return err, 0
 	}
+	//合成INSERT语句，需要返回这条记录的ID
 	sql := fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v) RETURNING _id", orm.TableName, tableItemStr, valueItemStr)
+	//执行Query方法
 	rows, err := orm.Db.Query(sql, orm.ParamValues...)
 	if err != nil {
 		return err, 0
@@ -182,6 +247,7 @@ func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
 
 	var id int
 	for rows.Next() {
+		//循环得到id值
 		err := rows.Scan(&id)
 		if err != nil {
 			return err, 0
@@ -595,45 +661,4 @@ func (orm *Orm) scanMapIntoStruct(o interface{}, omap map[string][]byte) error {
 	}
 
 	return nil
-}
-
-//保存信息
-func (orm *Orm) createInfo(o interface{}) (error, string, string) {
-	err := orm.scanStructIntoMap(o)
-	if err != nil {
-		return err, "", ""
-	}
-	args := orm.StructMap
-	dt := orm.DateTimeNames
-
-	delete(args, orm.AutoPKName)
-
-	for j := 0; j < len(dt); j++ {
-		delete(args, dt[j])
-	}
-
-	var names []string
-	var namevlues []string
-	var values []interface{}
-
-	for n, v := range args {
-		names = append(names, n)
-		values = append(values, v)
-	}
-
-	for j := 1; j <= len(names); j++ {
-		namevlues = append(namevlues, fmt.Sprintf("$%v", j))
-	}
-
-	for j := 0; j < len(dt); j++ {
-		names = append(names, dt[j])
-		namevlues = append(namevlues, "current_timestamp")
-	}
-	tableItemStr := fmt.Sprintf("_%v", strings.ToLower(strings.Join(names, ",_")))
-	valueItemStr := strings.Join(namevlues, ",")
-
-	orm.ParamValues = values
-
-	return nil, tableItemStr, valueItemStr
-
 }
