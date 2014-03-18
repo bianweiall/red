@@ -29,7 +29,7 @@ type Orm struct {
 	//解析struct为一个map
 	StructMap map[string]interface{}
 	//过滤字符串
-	SelectStrs []string
+	SelectStr string
 	//ORDER BY字符串
 	OrderByStr string
 	//LIMIT字符串
@@ -40,6 +40,8 @@ type Orm struct {
 	WhereStr string
 	//WHERE字符串中值
 	WhereStrValue []interface{}
+	//RETURNING
+	ReturningStr string
 }
 
 func (orm *Orm) InitOrm() {
@@ -50,11 +52,12 @@ func (orm *Orm) InitOrm() {
 	orm.AutoPKName = ""
 	orm.DateTimeNames = make([]string, 0)
 	orm.StructMap = make(map[string]interface{})
-	orm.SelectStrs = make([]string, 0)
+	orm.SelectStr = ""
 	orm.OrderByStr = ""
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
 	orm.WhereStr = ""
+	orm.ReturningStr = ""
 }
 
 //New一个Orm对象
@@ -77,30 +80,25 @@ func (orm *Orm) SetTableName(tableName string) *Orm {
 	return orm
 }
 
-//设置需要选择的数据库字段,参数str格式："_" + 英文字母小写(对应数据库中的字段，例如：“_id”)
-func (orm *Orm) Select(str string) *Orm {
-	var strs []string
-	if str != "" {
-		//如果字符串中有","
-		if strings.Contains(str, ",") == true {
-			//用","把字符串分割成字符串数组
-			strs = strings.Split(str, ",")
-			var i = true
-			for _, v := range strs {
-				//正则匹配
+//设置需要选择的数据库字段,参数str的字段名格式："_" + 英文字母小写(对应数据库中的字段，例如：“_id”)
+func (orm *Orm) Select(strs ...string) *Orm {
+	if len(strs) > 0 {
+		i := true
+		for _, v := range strs {
+			if v != "" {
+				//正则检查是否匹配，如果不匹配则 i=false，并跳出循环
 				if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
-					//正则不匹配i=false，并break
 					i = false
 					break
 				}
 			}
-			if i == true {
-				orm.SelectStrs = strs
-			}
-		} else {
-			//正则匹配
-			if regexp.MustCompile(`^_[a-z]+\b`).MatchString(str) == true {
-				orm.SelectStrs = append(strs, str)
+		}
+
+		if i == true {
+			if len(strs) == 1 {
+				orm.SelectStr = fmt.Sprintf("SELECT %v", strs[0])
+			} else {
+				orm.SelectStr = fmt.Sprintf("SELECT %v", strings.Join(strs, ","))
 			}
 		}
 	}
@@ -112,83 +110,140 @@ func (orm *Orm) Where(str string, strValue ...interface{}) *Orm {
 	if str != "" && strValue != nil {
 		//所有英文字母小写
 		str = strings.ToLower(str)
-		//fmt.Println("小写：", str)
 		//计算"?"有几个
 		num := strings.Count(str, "?")
-		//fmt.Println("?个数：", num)
+
 		if num > 0 {
 			if num == len(strValue) {
+				//定义一个匿名函数，作用是检查str参数中的字段名格式是否正确，返回true为正确
+				fn := func(strs []string) bool {
+					i := true
+					//定义一个保存字段名的数组
+					var newStrs []string
+					//循环删除如下字符，把得到字段名加入数组
+					for _, str := range strs {
+						if str != "" {
+							//删除前后空格
+							var v = strings.TrimSpace(str)
+							//如果字符串中有"and"，执行删除"and"操作
+							if strings.Contains(v, "and") == true {
+								v = strings.Trim(v, "and")
+							}
+							if strings.Contains(v, "or") == true {
+								v = strings.Trim(v, "or")
+							}
+							if strings.Contains(v, "=") == true {
+								v = strings.Trim(v, "=")
+							}
+							if strings.Contains(v, "<>") == true {
+								v = strings.Trim(v, "<>")
+							}
+							if strings.Contains(v, "!=") == true {
+								v = strings.Trim(v, "!=")
+							}
+							if strings.Contains(v, ">") == true {
+								v = strings.Trim(v, ">")
+							}
+							if strings.Contains(v, "<") == true {
+								v = strings.Trim(v, "<")
+							}
+							if strings.Contains(v, ">=") == true {
+								v = strings.Trim(v, ">=")
+							}
+							if strings.Contains(v, "<=") == true {
+								v = strings.Trim(v, "<=")
+							}
+							if strings.Contains(v, "between") == true {
+								v = strings.Trim(v, "between")
+							}
+							if strings.Contains(v, "like") == true {
+								v = strings.Trim(v, "like")
+							}
+							v = strings.TrimSpace(v)
+							if v != "" {
+								newStrs = append(newStrs, v)
+							}
+						}
+					}
+					//fmt.Println("newStrs: ", newStrs)
+					//循环匹配字段名是否符合要求
+					for _, v := range newStrs {
+						//正则检查是否匹配，如果不匹配则 i=false，并跳出循环
+						if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+							i = false
+							break
+						}
+					}
+					return i
+				}
 				//用"?"分割成字符串数组
 				strs := strings.Split(str, "?")
-				fmt.Println("分割后的数组：", strs)
-				//循环删除如下字符，得到字段名
-				for _, v := range strs {
-					v = strings.Trim(v, "and")
-					v = strings.Trim(v, "or")
-					v = strings.Trim(v, "=")
-					v = strings.Trim(v, "<>")
-					v = strings.Trim(v, "!=")
-					v = strings.Trim(v, ">")
-					v = strings.Trim(v, "<")
-					v = strings.Trim(v, ">=")
-					v = strings.Trim(v, "<=")
-					v = strings.Trim(v, "between")
-					v = strings.Trim(v, "like")
-					v = strings.Trim(v, " ")
-				}
-				fmt.Println("分割后的数组2：", strs)
-				i := true
-				//循环匹配是否符合要求
-				for _, v := range strs {
-					//正则匹配
-					if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
-						//正则不匹配i=false，并break
-						i = false
-						break
-					}
-				}
+				//用上面的匿名函数检查是否正确
+				i := fn(strs)
+				//fmt.Println("ok: ", i)
 				if i == true {
 					if num == 1 {
 						//用"S1"替换"?"
-						strings.Replace(str, "?", "$1", 1)
+						str = strings.Replace(str, "?", "$1", 1)
 					} else {
 						//循环用占位符替换"?"
 						for i := 1; i <= num; i++ {
-							strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
+							str = strings.Replace(str, "?", fmt.Sprintf("$%v", i), 1)
 						}
 					}
-					orm.WhereStr = str
-					orm.ParamValues = strValue
+					orm.WhereStr = fmt.Sprintf("WHERE %v", str)
+					orm.WhereStrValue = strValue
 				}
 			}
 		}
 	}
+	//fmt.Println("orm wherestr: ", orm.WhereStr)
 	return orm
 }
 
-//设置ORDER BY
+//设置ORDER BY，orderByStrs参数中字段名格式("_" + 英文字母小写)，其他都用英文字母小写
 func (orm *Orm) OrderBy(orderByStrs ...string) *Orm {
-	var strs []string
-	var orderByStr string
-
 	if len(orderByStrs) > 0 {
+		//定义一个保存字段名的数组
+		var newStrs []string
+		//循环删除如下字符，把得到字段名加入数组
 		for _, v := range orderByStrs {
-			if strings.Contains(v, "-") == true {
-				strs = append(strs, fmt.Sprintf("%v DESC", fmt.Sprintf("_%v", strings.ToLower(strings.TrimLeft(v, "-")))))
-			} else {
-				strs = append(strs, fmt.Sprintf("%v ASC", fmt.Sprintf("_%v", strings.ToLower(v))))
+			if v != "" {
+				//所有英文字母小写
+				str := strings.ToLower(v)
+				//删除前后空格
+				str = strings.TrimSpace(str)
+				//如果字符串中有"asc"，执行删除"asc"操作
+				if strings.Contains(str, "asc") == true {
+					str = strings.Trim(str, "asc")
+				}
+				if strings.Contains(str, "desc") == true {
+					str = strings.Trim(str, "desc")
+				}
+				str = strings.TrimSpace(str)
+				newStrs = append(newStrs, str)
 			}
 		}
+		i := true
+		//循环匹配字段名是否符合要求
+		for _, v := range newStrs {
+			//正则检查是否匹配，如果不匹配则 i=false，并跳出循环
+			if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+				i = false
+				break
+			}
+		}
+		if i == true {
+			var orderByStr string
+			if len(orderByStrs) == 1 {
+				orderByStr = fmt.Sprintf("ORDER BY %v", orderByStrs[0])
+			} else {
+				orderByStr = fmt.Sprintf("ORDER BY %v", strings.Join(orderByStrs, ", "))
+			}
+
+			orm.OrderByStr = orderByStr
+		}
 	}
-
-	if len(orderByStrs) == 1 {
-		orderByStr = fmt.Sprintf("ORDER BY %v", strs[0])
-	} else {
-		orderByStr = fmt.Sprintf("ORDER BY %v", strings.Join(strs, ", "))
-	}
-
-	orm.OrderByStr = orderByStr
-
 	return orm
 }
 
@@ -208,16 +263,42 @@ func (orm *Orm) Offset(offset int) *Orm {
 	return orm
 }
 
+//设置RETURNING, 参数中字段名格式("_" + 英文字母小写)
+func (orm *Orm) Returning(strs ...string) *Orm {
+	if len(strs) > 0 {
+		i := true
+		//循环匹配字段名是否符合要求
+		for _, v := range strs {
+			//正则检查是否匹配，如果不匹配则 i=false，并跳出循环
+			if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+				i = false
+				break
+			}
+		}
+		if i == true {
+			var returningStr string
+			if len(strs) == 1 {
+				returningStr = fmt.Sprintf("RETURNING %v", strs[0])
+			} else {
+				returningStr = fmt.Sprintf("RETURNING %v", strings.Join(strs, ", "))
+			}
+
+			orm.ReturningStr = returningStr
+		}
+	}
+	return orm
+}
+
 //传入一个struct对象，返回错误和两个字符串，此两个字符串用于拼接SQL字符串的
 //例如有一个SQL语句:INSERT INTO table_name (_id,_name,_age) VALUES ($1,$2,$3)
 //返回的第一个string代表字段名字符串(类似上面“_id,_name,_age”处)，返回的第二个string代表字段值占位符字符串(类似上面“$1,$2,$3”处)
-func (orm *Orm) getInsertStr(o interface{}) (error, string, string) {
-	//把一个struct类型的值保存到一个map中
-	err := orm.scanStructIntoMap(o)
+func (orm *Orm) getInsert(o interface{}) error {
+	//把一个struct类型的信息保存到一个Orm中
+	err := orm.scanStructIntoOrm(o)
 	if err != nil {
-		return err, "", ""
+		return err
 	}
-	//获取刚刚保存的map
+	//获取刚刚保存的StructMap
 	args := orm.StructMap
 	//获取表示时间和日期的字段
 	dt := orm.DateTimeNames
@@ -256,112 +337,105 @@ func (orm *Orm) getInsertStr(o interface{}) (error, string, string) {
 	insertValueStr := strings.Join(namevlues, ",")
 	//保存字段值到orm
 	orm.ParamValues = values
-
-	return nil, insertFieldStr, insertValueStr
-
-}
-
-//保存数据
-func (orm *Orm) Create(o interface{}) error {
-	//关闭资源
-	defer orm.InitOrm()
-	//取得需要保存到数据库中的字段名字符串和字段值占位符字符串
-	err, tableItemStr, valueItemStr := orm.getInsertStr(o)
-	if err != nil {
-		return err
-	}
 	//合成INSERT语句
-	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, tableItemStr, valueItemStr)
-	//持久化到数据库
-	_, err = orm.exec()
-
-	if err != nil {
-		return err
-	}
+	orm.SqlStr = fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v)", orm.TableName, insertFieldStr, insertValueStr)
 	return nil
 }
 
-//保存数据后返回自增ID
-func (orm *Orm) CreateAndReturnId(o interface{}) (error, int) {
+//保存数据,有返回值并返回一个map
+func (orm *Orm) Create(o interface{}) (error, map[string][]byte) {
 	//关闭资源
 	defer orm.InitOrm()
 	//取得需要保存到数据库中的字段名字符串和字段值占位符字符串
-	err, tableItemStr, valueItemStr := orm.getInsertStr(o)
+	err := orm.getInsert(o)
 	if err != nil {
-		return err, 0
-	}
-	//合成INSERT语句，需要返回这条记录的ID
-	sql := fmt.Sprintf("INSERT INTO %v(%v) VALUES(%v) RETURNING _id", orm.TableName, tableItemStr, valueItemStr)
-	//执行Query方法
-	rows, err := orm.Db.Query(sql, orm.ParamValues...)
-	if err != nil {
-		return err, 0
+		return err, nil
 	}
 
-	var id int
-	for rows.Next() {
-		//循环得到id值
-		err := rows.Scan(&id)
+	//判断是否有RETURNING语句
+	if orm.ReturningStr == "" {
+		//持久化到数据库
+		_, err = orm.exec()
+
 		if err != nil {
-			return err, 0
+			return err, nil
 		}
+		return nil, nil
+	} else {
+		//合成INSERT ... RETURNING
+		sql := fmt.Sprintf("%v %v", orm.SqlStr, orm.ReturningStr)
+
+		resultsSlice, err := orm.query(sql, orm.ParamValues)
+		if err != nil {
+			return err, nil
+		}
+		return nil, resultsSlice[0]
 	}
-	return nil, id
+
 }
 
 //更新数据
 func (orm *Orm) Update(o interface{}) error {
 	defer orm.InitOrm()
-	err := orm.scanStructIntoMap(o)
+	//把STRUCT相关信息映射到ORM
+	err := orm.scanStructIntoOrm(o)
 	if err != nil {
 		return err
 	}
+	//获取STRUCT字段名和值
 	args := orm.StructMap
-	dt := orm.DateTimeNames
-
-	delete(args, orm.AutoPKName)
-
-	for j := 0; j < len(dt); j++ {
-		delete(args, dt[j])
+	//删除带`auto:pk`的字段
+	if orm.AutoPKName != "" {
+		delete(args, orm.AutoPKName)
 	}
 
+	//保存字段名的数组
 	var names []string
+	//保存字段值占位符的数组
 	var namevlues []string
+	//保存字段值的数组
 	var values []interface{}
 
 	var snum = 1
+	//循环提取内容到相关的数组
 	for k, v := range args {
 		names = append(names, k)
-		namevlues = append(namevlues, fmt.Sprintf("$%v", snum))
-		values = append(values, v)
-		snum++
-	}
-
-	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
-	if whereStrName == "" || whereValue == nil {
-		return errors.New("where条件NAME不能为空,VALUE不能为nil")
-	}
-
-	values = append(values, whereValue)
-
-	for j := 0; j < len(dt); j++ {
-		if strings.ToLower(dt[j]) != strings.ToLower(whereStrName) {
-			names = append(names, dt[j])
+		if v == "current_timestamp" {
 			namevlues = append(namevlues, "current_timestamp")
+		} else {
+			namevlues = append(namevlues, fmt.Sprintf("$%v", snum))
+			values = append(values, v)
+			snum++
 		}
 	}
-
+	//fmt.Println("names: ", names)
+	//fmt.Println("namevlues: ", namevlues)
+	//fmt.Println("values: ", values)
+	whereStr, whereValue := orm.WhereStr, orm.WhereStrValue
+	//检查WHERE条件是否正确
+	if whereStr == "" {
+		return errors.New("where条件不能为空，请检查Where()参数是否正确")
+	}
+	//fmt.Println("whereStr: ", whereStr)
+	//fmt.Println("whereValue: ", whereValue)
+	//WHERE SQL
+	for i := 1; i <= len(orm.WhereStrValue); i++ {
+		whereStr = strings.Replace(whereStr, fmt.Sprintf("$%v", i), fmt.Sprintf("$%v", snum), 1)
+		snum = snum + i
+	}
+	values = append(values, whereValue)
+	fmt.Println("whereStr2: ", whereStr)
 	var setStrs []string
 	for i := 0; i < len(names); i++ {
 		setStrs = append(setStrs, fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(names[i])), namevlues[i]))
 	}
-
+	//SET SQL
 	setStr := strings.Join(setStrs, ",")
-	whereStr := fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(whereStrName)), fmt.Sprintf("$%v", snum))
+	fmt.Println("setStr: ", setStr)
 
 	orm.ParamValues = values
-	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v WHERE %v", orm.TableName, setStr, whereStr)
-
+	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v %v", orm.TableName, setStr, whereStr)
+	fmt.Println("orm.SqlStr: ", orm.SqlStr)
 	_, err = orm.exec()
 	if err != nil {
 		return err
@@ -372,7 +446,7 @@ func (orm *Orm) Update(o interface{}) error {
 //删除数据
 func (orm *Orm) Delete(o interface{}) error {
 	defer orm.InitOrm()
-	err := orm.scanStructIntoMap(o)
+	err := orm.scanStructIntoOrm(o)
 	if err != nil {
 		return err
 	}
@@ -411,7 +485,7 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 		sliceElementType := sliceValue.Type().Elem()
 
 		st := reflect.New(sliceElementType)
-		err := orm.scanStructIntoMap(st.Interface())
+		err := orm.scanStructIntoOrm(st.Interface())
 		if err != nil {
 			return err
 		}
@@ -439,31 +513,31 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 //取得一条记录
 func (orm *Orm) findOne(o interface{}) error {
 	//defer orm.InitOrm()
-	err := orm.scanStructIntoMap(o) //把一个struct信息保存到一个map中
+	err := orm.scanStructIntoOrm(o) //把一个struct信息保存到一个Orm中
 	if err != nil {
 		return err
 	}
 
-	args := orm.StructMap //获取上面保存的map
-	fs := orm.SelectStrs  //获取需要过滤掉的字段
+	//args := orm.StructMap //获取上面保存的map
+	//fs := orm.SelectStr   //获取需要过滤掉的字段
 
-	for i := 0; i < len(fs); i++ {
-		delete(args, fs[i]) //从map中删除需要过滤的字段
-	}
+	//for i := 0; i < len(fs); i++ {
+	//	delete(args, fs[i]) //从map中删除需要过滤的字段
+	//}
 
-	var selectStrs []string //定义一个保存所有SELECT字段的数组
-	for k, _ := range args {
-		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k))) //每个字段所有字母全部小写，并加上“_”前缀，对应数据库中的字段
-	}
+	//var selectStrs []string //定义一个保存所有SELECT字段的数组
+	//for k, _ := range args {
+	//	selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k))) //每个字段所有字母全部小写，并加上“_”前缀，对应数据库中的字段
+	//}
 
-	selectStr := strings.Join(selectStrs, ",") //合成SELECT字符串
+	//selectStr := strings.Join(selectStrs, ",") //合成SELECT字符串
 
 	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue //获取SQL WHERE语句和WHERE语句中所有？代表的值的集合
 	if whereStrName == "" {
 		return errors.New("where()参数输入错误")
 	}
 
-	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v", selectStr, orm.TableName, whereStrName) //合成SQL语句
+	orm.SqlStr = fmt.Sprintf("SELECT %v FROM %v WHERE %v", orm.SelectStr, orm.TableName, whereStrName) //合成SQL语句
 
 	results, err := orm.query(orm.SqlStr, whereValue) //执行query，返回一个map数组
 	if err != nil {
@@ -584,23 +658,23 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 	}
 
 	//SELECT
-	args := orm.StructMap
-	fs := orm.SelectStrs
-	var selectStr string
-	if len(fs) < 1 {
-		selectStr = "*"
-	} else {
-		for i := 0; i < len(fs); i++ {
-			delete(args, fs[i])
-		}
-		var selectStrs []string
-		for k, _ := range args {
-			selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
-		}
-		selectStr = strings.Join(selectStrs, ",")
-	}
+	//args := orm.StructMap
+	//fs := orm.SelectStr
+	//var selectStr string
+	//if len(fs) < 1 {
+	//	selectStr = "*"
+	//} else {
+	//	for i := 0; i < len(fs); i++ {
+	//		delete(args, fs[i])
+	//	}
+	//	var selectStrs []string
+	//	for k, _ := range args {
+	//		selectStrs = append(selectStrs, fmt.Sprintf("_%v", strings.ToLower(k)))
+	//	}
+	//	selectStr = strings.Join(selectStrs, ",")
+	//}
 
-	selectSql := fmt.Sprintf("SELECT %v FROM %v %v %v %v %v", selectStr, orm.TableName, whereStr, orm.OrderByStr, limitStr, offsetStr)
+	selectSql := fmt.Sprintf("SELECT %v FROM %v %v %v %v %v", orm.SelectStr, orm.TableName, whereStr, orm.OrderByStr, limitStr, offsetStr)
 	orm.SqlStr = selectSql
 
 	return selectSql, whereStrValue
@@ -608,7 +682,7 @@ func (orm *Orm) getSelectSqlAndValues() (string, []interface{}) {
 }
 
 //解析STRUCT字段和值到一个MAP中
-func (orm *Orm) scanStructIntoMap(o interface{}) error {
+func (orm *Orm) scanStructIntoOrm(o interface{}) error {
 	if reflect.TypeOf(o).Kind() != reflect.Ptr {
 		return errors.New("要求传入一个struct类型的指针")
 	}
@@ -620,7 +694,7 @@ func (orm *Orm) scanStructIntoMap(o interface{}) error {
 	t := reflect.TypeOf(o).Elem()
 	v := reflect.ValueOf(o).Elem()
 	var args = make(map[string]interface{})
-	var dateTimes []string
+	//var dateTimes []string
 	var pkName string
 	var j = 0
 
@@ -636,7 +710,8 @@ func (orm *Orm) scanStructIntoMap(o interface{}) error {
 			pkName = t.Field(i).Name
 			j++
 		} else if t.Field(i).Tag == "dt" {
-			dateTimes = append(dateTimes, t.Field(i).Name)
+			args[t.Field(i).Name] = "current_timestamp"
+			//dateTimes = append(dateTimes, t.Field(i).Name)
 		}
 
 		if j > 1 {
@@ -648,7 +723,7 @@ func (orm *Orm) scanStructIntoMap(o interface{}) error {
 		orm.TableName = fmt.Sprintf("_%v", strings.ToLower(t.Name()))
 	}
 
-	orm.DateTimeNames = dateTimes
+	//orm.DateTimeNames = dateTimes
 	orm.PKName = pkName
 	orm.StructMap = args
 
