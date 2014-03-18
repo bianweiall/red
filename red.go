@@ -408,34 +408,29 @@ func (orm *Orm) Update(o interface{}) error {
 			snum++
 		}
 	}
-	//fmt.Println("names: ", names)
-	//fmt.Println("namevlues: ", namevlues)
-	//fmt.Println("values: ", values)
+
 	whereStr, whereValue := orm.WhereStr, orm.WhereStrValue
 	//检查WHERE条件是否正确
 	if whereStr == "" {
 		return errors.New("where条件不能为空，请检查Where()参数是否正确")
 	}
-	//fmt.Println("whereStr: ", whereStr)
-	//fmt.Println("whereValue: ", whereValue)
 	//WHERE SQL
-	for i := 1; i <= len(orm.WhereStrValue); i++ {
-		whereStr = strings.Replace(whereStr, fmt.Sprintf("$%v", i), fmt.Sprintf("$%v", snum), 1)
-		snum = snum + i
+	for i := 0; i < len(orm.WhereStrValue); i++ {
+		values = append(values, whereValue[i])
+		whereStr = strings.Replace(whereStr, fmt.Sprintf("$%v", i+1), fmt.Sprintf("$%v", snum), 1)
+		snum = snum + i + 1
 	}
-	values = append(values, whereValue)
-	fmt.Println("whereStr2: ", whereStr)
+
 	var setStrs []string
 	for i := 0; i < len(names); i++ {
 		setStrs = append(setStrs, fmt.Sprintf("%v=%v", fmt.Sprintf("_%v", strings.ToLower(names[i])), namevlues[i]))
 	}
 	//SET SQL
 	setStr := strings.Join(setStrs, ",")
-	fmt.Println("setStr: ", setStr)
 
 	orm.ParamValues = values
 	orm.SqlStr = fmt.Sprintf("UPDATE %v SET %v %v", orm.TableName, setStr, whereStr)
-	fmt.Println("orm.SqlStr: ", orm.SqlStr)
+
 	_, err = orm.exec()
 	if err != nil {
 		return err
@@ -451,16 +446,16 @@ func (orm *Orm) Delete(o interface{}) error {
 		return err
 	}
 
-	whereStrName, whereValue := orm.WhereStr, orm.WhereStrValue
-	if whereStrName == "" || whereValue == nil {
-		return errors.New("where条件NAME不能为空,VALUE不能为nil")
+	whereStr, whereValue := orm.WhereStr, orm.WhereStrValue
+	//检查WHERE条件是否正确
+	if whereStr == "" {
+		return errors.New("where条件不能为空，请检查Where()参数是否正确")
 	}
 
-	var values []interface{}
-	values = append(values, whereValue)
-	orm.ParamValues = values
-	orm.SqlStr = fmt.Sprintf("DELETE FROM %v WHERE %v=$1", orm.TableName, fmt.Sprintf("_%v", strings.ToLower(whereStrName)))
-
+	orm.ParamValues = whereValue
+	orm.SqlStr = fmt.Sprintf("DELETE FROM %v %v", orm.TableName, whereStr)
+	fmt.Println("orm.SqlStr: ", orm.SqlStr)
+	fmt.Println("orm.ParamValues: ", orm.ParamValues)
 	_, err = orm.exec()
 	if err != nil {
 		return err

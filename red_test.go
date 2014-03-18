@@ -136,20 +136,31 @@ type Book struct {
 //	fmt.Println("_name: ", string(strs["_name"]))
 //}
 
-func TestUpdate(t *testing.T) {
-	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
-	if err != nil {
-		fmt.Println(err)
-	}
+//func TestUpdate(t *testing.T) {
+//	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
+//	if err != nil {
+//		fmt.Println(err)
+//	}
 
-	var w Warehouse
-	w.Fid = 2
-	w.Level = 2
-	w.Name = "未定义bbbbbb"
-	err = orm.Where("_id = ?", 145).Update(&w)
-	if err != nil {
-		fmt.Println(err)
-	}
-	//fmt.Println("WHERE STR: ", orm.WhereStr)
-	//fmt.Println("SQL: ", orm.SqlStr)
-}
+//	var w Warehouse
+//	w.Fid = 1
+//	w.Level = 1
+//	w.Name = "未定义"
+//	err = orm.Where("_id = ?", 132).Update(&w)
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+//}
+
+//func TestDelete(t *testing.T) {
+//	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+
+//	var w Warehouse
+//	err = orm.Where("_id = ?", 132).Delete(&w)
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+//}
