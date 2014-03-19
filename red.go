@@ -30,6 +30,8 @@ type Orm struct {
 	StructMap map[string]interface{}
 	//过滤字符串
 	SelectStr string
+	//SET
+	SetStr string
 	//ORDER BY字符串
 	OrderByStr string
 	//LIMIT字符串
@@ -53,6 +55,7 @@ func (orm *Orm) InitOrm() {
 	orm.DateTimeNames = make([]string, 0)
 	orm.StructMap = make(map[string]interface{})
 	orm.SelectStr = ""
+	orm.SetStr = ""
 	orm.OrderByStr = ""
 	orm.LimitStr = 0
 	orm.OffsetStr = 0
@@ -99,6 +102,31 @@ func (orm *Orm) Select(strs ...string) *Orm {
 				orm.SelectStr = fmt.Sprintf("SELECT %v", strs[0])
 			} else {
 				orm.SelectStr = fmt.Sprintf("SELECT %v", strings.Join(strs, ","))
+			}
+		}
+	}
+	return orm
+}
+
+//设置SET条件
+func (orm *Orm) Set(strs ...string) *Orm {
+	if len(strs) > 0 {
+		i := true
+		for _, v := range strs {
+			if v != "" {
+				//正则检查是否匹配，如果不匹配则 i=false，并跳出循环
+				if regexp.MustCompile(`^_[a-z]+\b`).MatchString(v) != true {
+					i = false
+					break
+				}
+			}
+		}
+
+		if i == true {
+			if len(strs) == 1 {
+				orm.SetStr = fmt.Sprintf("SET %v", strs[0])
+			} else {
+				orm.SetStr = fmt.Sprintf("SET %v", strings.Join(strs, ","))
 			}
 		}
 	}
@@ -399,13 +427,16 @@ func (orm *Orm) Update(o interface{}) error {
 	var snum = 1
 	//循环提取内容到相关的数组
 	for k, v := range args {
-		names = append(names, k)
-		if v == "current_timestamp" {
-			namevlues = append(namevlues, "current_timestamp")
-		} else {
-			namevlues = append(namevlues, fmt.Sprintf("$%v", snum))
-			values = append(values, v)
-			snum++
+		if v != nil {
+			//fmt.Println("v: ", v)
+			names = append(names, k)
+			if v == "current_timestamp" {
+				namevlues = append(namevlues, "current_timestamp")
+			} else {
+				namevlues = append(namevlues, fmt.Sprintf("$%v", snum))
+				values = append(values, v)
+				snum++
+			}
 		}
 	}
 
@@ -695,7 +726,7 @@ func (orm *Orm) scanStructIntoOrm(o interface{}) error {
 
 	for i := 0; i < t.NumField(); i++ {
 		args[t.Field(i).Name] = v.Field(i).Interface()
-
+		fmt.Println("v: ", v.Field(i).IsNil())
 		if t.Field(i).Tag == "pk:auto" {
 			pkName = t.Field(i).Name
 			orm.AutoPKName = pkName
