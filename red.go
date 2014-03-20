@@ -576,14 +576,18 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 			return err
 		}
 
+		var values []interface{}
+
 		//WHERE
-		whereStr, whereStrValue := orm.WhereStr, orm.WhereStrValue
+		whereStr := orm.WhereStr
 		//计算条件个数
 		var j int
 		if whereStr == "" {
 			j = 0
 		} else {
+			whereStrValue := orm.WhereStrValue
 			j = len(whereStrValue)
+			values = append(values, whereStrValue)
 		}
 
 		//LIMIT OFFSET
@@ -594,7 +598,7 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 			limitStr = fmt.Sprintf("LIMIT $%v", j+1)
 			var l interface{}
 			l = orm.LimitStr
-			whereStrValue = append(whereStrValue, l)
+			values = append(values, l)
 			j++
 		}
 
@@ -604,7 +608,7 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 			offsetStr = fmt.Sprintf("OFFSET $%v", j+1)
 			var o interface{}
 			o = orm.OffsetStr
-			whereStrValue = append(whereStrValue, o)
+			values = append(values, o)
 		}
 
 		selectStr := orm.SelectStr
@@ -614,7 +618,7 @@ func (orm *Orm) Find(slicePtr interface{}) error {
 
 		selectSql := fmt.Sprintf("%v FROM %v %v %v %v %v", selectStr, orm.TableName, whereStr, limitStr, offsetStr, orm.OrderByStr)
 
-		resultsSlice, err := orm.query(selectSql, whereStrValue)
+		resultsSlice, err := orm.query(selectSql, values)
 		if err != nil {
 			return err
 		}
