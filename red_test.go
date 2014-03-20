@@ -22,6 +22,16 @@ type Book struct {
 	NowTime string `dt`
 }
 
+type User struct {
+	Id          int `pk:auto`
+	Level       int
+	Username    string
+	Goodname    string
+	Email       string
+	Password    string
+	Createdtime string `dt`
+}
+
 //func TestSetTableName(t *testing.T) {
 //	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
 //	if err != nil {
@@ -55,6 +65,16 @@ type Book struct {
 //	orm.SelectStr = ""
 //	orm.Select("_id", "_name")
 //	fmt.Println("_id ,_name: ", orm.SelectStr)
+//}
+
+//func TestSet(t *testing.T) {
+//	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+//	orm.Set("_name", "_fid")
+//	fmt.Println("orm.SetStrs: ", orm.SetStrs)
+
 //}
 
 //func TestWhere(t *testing.T) {
@@ -136,21 +156,26 @@ type Book struct {
 //	fmt.Println("_name: ", string(strs["_name"]))
 //}
 
-func TestUpdate(t *testing.T) {
-	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
-	if err != nil {
-		fmt.Println(err)
-	}
+//func TestUpdate(t *testing.T) {
+//	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
+//	if err != nil {
+//		fmt.Println(err)
+//	}
 
-	var w Warehouse
-	w.Fid = 0
-	//w.Level = 1
-	w.Name = "未定义"
-	err = orm.Where("_id = ?", 145).Update(&w)
-	if err != nil {
-		fmt.Println(err)
-	}
-}
+//	var u User
+//	u.Email = "ddd@aaa.com"
+//	u.Goodname = "ddd"
+//	u.Username = "ddd"
+//	u.Password = "ddd"
+//	u.Level = 1
+//	err = orm.Where("_id = ?", 1).Update(&u)
+//	//err = orm.Set("_createdtime").Where("_id = ?", 1).Update(&u)
+//	//err = orm.Set("_email").Where("_id = ?", 1).Update(&u)
+//	//err = orm.Set("_createdtime", "_email", "_password").Where("_id = ?", 1).Update(&u)
+//	if err != nil {
+//		fmt.Println(err)
+//	}
+//}
 
 //func TestDelete(t *testing.T) {
 //	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
@@ -159,8 +184,25 @@ func TestUpdate(t *testing.T) {
 //	}
 
 //	var w Warehouse
-//	err = orm.Where("_id = ?", 132).Delete(&w)
+//	err = orm.Where("_id > ?", 138).Delete(&w)
 //	if err != nil {
 //		fmt.Println(err)
 //	}
 //}
+
+func TestFind(t *testing.T) {
+	err, orm := New("postgres", "user=greenerp password=guotinghuayuan30301 dbname=greenerp sslmode=disable")
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	//var w Warehouse
+	//err = orm.Where("_id = ?", 120).Find(&w)
+	//err = orm.Select("_name", "_fid").Where("_id = ?", 120).Find(&w)
+	var lw []Warehouse
+	err = orm.Select("_name", "_fid").Where("_fid = ? and _name like ?", 84, "%经理%").Find(&lw)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(lw)
+}
